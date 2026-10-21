@@ -5,9 +5,15 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from kolo.core.config import Settings
-from kolo.core.security import hash_secret, new_secret
+from kolo.core.security import (
+    hash_secret, 
+    new_secret, 
+    verify_secret, 
+    create_room_token, 
+    new_participant_id
+)
 from kolo.domain.errors import InvalidInput, RoomCodeTaken, RoomExpired, RoomNotFound
-from kolo.domain.models import Room
+from kolo.domain.models import Room, Role
 from kolo.domain.room_codes import generate_room_code, is_valid_room_code, normalize_room_code
 from kolo.repositories.base import RoomRepository
 
@@ -18,6 +24,15 @@ def utcnow() -> datetime:
 class CreatedRoom:
     room: Room
     host_secret: str  # shown only once, database stores only the hash
+
+@dataclass(frozen=True)
+class JoinTicket:
+    # read-only ticket holding everything a user needs to join the call
+    room: Room
+    participant_id: str
+    role: Role
+    token: str
+    ice_servers: list[dict]
 
 class RoomService:
     def __init__(self, repo: RoomRepository, settings: Settings, clock=utcnow) -> None:
@@ -75,3 +90,32 @@ class RoomService:
             raise RoomExpired()
             
         return room
+
+    async def join(self, raw_code: str, display_name: str, host_secret: str | None) -> JoinTicket:
+        room = await self.get_room(raw_code)
+        
+        # default to guest, but upgrade to host if the provided secret matches the hash
+        role = Role.GUEST
+        if host_secret and verify_secret(host_secret, room.host_secret_hash):
+            role = Role.HOST
+            
+        participant_id = new_participant_id()
+        
+        # bake the user info into a JWT token
+        token = create_room_token(
+            self._settings, 
+            room=room.code, 
+            participant_id=participant_id,
+            name=display_name, 
+            role=role,
+        )
+        
+        return JoinTicket(
+            room=room, 
+            participant_id=participant_id, 
+            role=role, 
+            token=token,
+            # pass STUN urls to the client so WebRTC knows how to connect.
+            # we'll add TURN servers here later
+            ice_servers=[{"urls": self._settings.stun_urls}], 
+        )

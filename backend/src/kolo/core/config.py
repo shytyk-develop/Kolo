@@ -48,6 +48,11 @@ class Settings(BaseSettings):
     webhook_url: str | None = None
     webhook_secret: SecretStr | None = None
 
+    require_api_key: bool = False
+    rooms_per_minute_per_ip: int = 10
+
+    frontend_url: str = "http://localhost:3000"
+
 
 @lru_cache
 def get_settings() -> Settings:
