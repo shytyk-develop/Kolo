@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from kolo.api.errors import kolo_error_handler
 from kolo.api.routes import health, rooms
+from kolo.api.ws import signaling
 from kolo.container import build_container
 from kolo.core.config import Settings, get_settings
 from kolo.core.logging import configure_logging
@@ -63,5 +64,6 @@ def create_app(settings: Settings | None = None, *, container_factory=None) -> F
     
     app.include_router(health.router)
     app.include_router(rooms.router, prefix="/api/v1/rooms")
+    app.include_router(signaling.router)
     
     return app

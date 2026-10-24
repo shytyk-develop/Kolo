@@ -12,9 +12,10 @@ from kolo.core.security import (
     create_room_token, 
     new_participant_id
 )
-from kolo.domain.errors import InvalidInput, RoomCodeTaken, RoomExpired, RoomNotFound
+from kolo.domain.errors import InvalidInput, RoomCodeTaken, RoomExpired, RoomFull, RoomNotFound
 from kolo.domain.models import Room, Role
 from kolo.domain.room_codes import generate_room_code, is_valid_room_code, normalize_room_code
+from kolo.infra.presence import PresenceStore
 from kolo.repositories.base import RoomRepository
 
 def utcnow() -> datetime:
@@ -35,9 +36,16 @@ class JoinTicket:
     ice_servers: list[dict]
 
 class RoomService:
-    def __init__(self, repo: RoomRepository, settings: Settings, clock=utcnow) -> None:
+    def __init__(
+        self,
+        repo: RoomRepository,
+        settings: Settings,
+        presence: PresenceStore,
+        clock=utcnow,
+    ) -> None:
         self._repo = repo
         self._settings = settings
+        self._presence = presence
         self._clock = clock
 
     async def create_room(
@@ -91,9 +99,17 @@ class RoomService:
             
         return room
 
+    async def participants_count(self, room: Room) -> int:
+        return await self._presence.count(room.code)
+
     async def join(self, raw_code: str, display_name: str, host_secret: str | None) -> JoinTicket:
         room = await self.get_room(raw_code)
-        
+
+        # fast pre-check so we don't hand out tokens for a full room.
+        # the authoritative check happens in PeerSession._join (two clients can race past this one)
+        if await self.participants_count(room) >= room.max_participants:
+            raise RoomFull()
+
         # default to guest, but upgrade to host if the provided secret matches the hash
         role = Role.GUEST
         if host_secret and verify_secret(host_secret, room.host_secret_hash):

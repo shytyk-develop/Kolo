@@ -5,16 +5,24 @@ from typing import Any, Callable
 
 from kolo.core.config import Settings
 from kolo.db.session import make_engine, make_session_factory
+from kolo.infra.broker import Broker, MemoryBroker
+from kolo.infra.presence import MemoryPresence, PresenceStore
 from kolo.infra.rate_limit import KeyedRateLimiter
 from kolo.repositories.memory import InMemoryRoomRepository
 from kolo.repositories.sql import SqlRoomRepository
+from kolo.services.events import EventSink, NullEventSink
 from kolo.services.rooms import RoomService
+from kolo.services.signaling.hub import SignalingHub
 
 @dataclass
 class Container:
     settings: Settings
     rooms: RoomService
     room_limiter: KeyedRateLimiter  # prevents IP spam for room creation
+    presence: PresenceStore  # who is in which room right now
+    broker: Broker  # pub/sub between sessions
+    hub: SignalingHub  # routes messages to local WebSocket sessions
+    events: EventSink  # analytics/audit events
     # keep track of cleanup stuff (like closing db connections)
     closers: list[Callable[[], Any]] = field(default_factory=list)
 
@@ -42,9 +50,16 @@ async def build_container(settings: Settings) -> Container:
         rate=settings.rooms_per_minute_per_ip / 60
     )
         
+    presence = MemoryPresence(ttl_seconds=settings.presence_ttl_seconds)
+    broker = MemoryBroker()
+
     return Container(
         settings=settings, 
-        rooms=RoomService(repo, settings),
+        rooms=RoomService(repo, settings, presence),
         room_limiter=limiter,
+        presence=presence,
+        broker=broker,
+        hub=SignalingHub(broker),
+        events=NullEventSink(),
         closers=closers
     )

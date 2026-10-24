@@ -23,6 +23,7 @@ class RoomPublicResponse(BaseModel):
     name: str
     max_participants: int
     lobby_enabled: bool
+    participants: int = 0
 
 class JoinRequest(BaseModel):
     display_name: str = Field(min_length=1, max_length=40)
@@ -53,4 +54,3 @@ class JoinResponse(BaseModel):
     expires_in: int
     ice_servers: list[IceServer]  # need this to pass TURN/STUN servers to the frontend for WebRTC
 
-    
