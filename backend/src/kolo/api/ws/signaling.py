@@ -2,14 +2,18 @@
 
 from fastapi import APIRouter, Query, WebSocket
 
+from kolo.core.logging import log
 from kolo.core.security import decode_room_token
 from kolo.domain.errors import KoloError, RoomExpired, RoomNotFound, Unauthorized
 from kolo.domain.models import Peer
+from kolo.infra.errors import DEPENDENCY_ERROR_TYPES, is_dependency_error
 from kolo.services.signaling.session import (
     CLOSE_FORBIDDEN,
     CLOSE_GONE,
     CLOSE_NOT_FOUND,
+    CLOSE_OVERLOADED,
     CLOSE_UNAUTHORIZED,
+    REASON_UNAVAILABLE,
     PeerSession,
 )
 
@@ -53,6 +57,14 @@ async def signaling(
             code=CLOSE_CODES.get(type(exc), CLOSE_FORBIDDEN), 
             reason=exc.code
         )
+        return
+    except DEPENDENCY_ERROR_TYPES as exc:
+        if not is_dependency_error(exc):
+            raise
+
+        # couldn't load the room: Redis or the database is down, the client should retry later
+        log.warning("dependency_unavailable", path=websocket.url.path, error=repr(exc))
+        await websocket.close(code=CLOSE_OVERLOADED, reason=REASON_UNAVAILABLE)
         return
         
     # bundle everything up and hand off control to the session manager

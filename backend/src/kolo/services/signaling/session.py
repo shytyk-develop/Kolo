@@ -33,6 +33,8 @@ CLOSE_GONE = 4410
 CLOSE_POLICY = 1008
 CLOSE_OVERLOADED = 1013
 
+REASON_UNAVAILABLE = "signaling_unavailable"
+
 MAX_VIOLATIONS = 50
 
 class SessionClosed(Exception):
@@ -90,6 +92,8 @@ class PeerSession:
         if kind == "_replaced":
             self._replaced = True
             self._spawn(self._close_ws(CLOSE_CONFLICT, "replaced"))
+        elif kind == "_listener_lost":
+            self._spawn(self._close_ws(CLOSE_OVERLOADED, REASON_UNAVAILABLE))
         elif not kind.startswith("_"):
             self.send(data)
 
@@ -132,18 +136,21 @@ class PeerSession:
     
     async def run(self) -> None:
         writer = asyncio.create_task(self._writer())
-        await self._hub.attach(self)
-        
         metrics.WS_CONNECTIONS.inc()
-        log.info("peer_connected", room=self.room_code, peer=self.peer.id, role=self.peer.role)
         
         try:
+            await self._hub.attach(self)
+            log.info("peer_connected", room=self.room_code, peer=self.peer.id, role=self.peer.role)
             await self._join()
             await self._read_loop()
         except WebSocketDisconnect:
             pass
         except SessionClosed as exc:
             await self._close_ws(exc.code, exc.reason)
+        except Exception:
+            # usually the broker or presence store is down: tell the client to retry
+            log.exception("peer_session_failed", room=self.room_code, peer=self.peer.id)
+            await self._close_ws(CLOSE_OVERLOADED, REASON_UNAVAILABLE)
         finally:
             metrics.WS_CONNECTIONS.dec()
             await self._leave()
@@ -197,12 +204,18 @@ class PeerSession:
             return
             
         if state == "joined":
-            await self._presence.remove(self.room_code, self.peer.id)
-            await self._hub.publish(
-                self.room_code, 
-                {"type": "peer-left", "peer_id": self.peer.id}, 
-                exclude=self.peer.id
-            )
+            # best effort: a broker outage must not stop us from closing the socket and cleaning up.
+            # if this fails, the presence TTL drops the peer later
+            try:
+                await self._presence.remove(self.room_code, self.peer.id)
+                await self._hub.publish(
+                    self.room_code, 
+                    {"type": "peer-left", "peer_id": self.peer.id}, 
+                    exclude=self.peer.id
+                )
+            except Exception:
+                log.warning("peer_leave_failed", room=self.room_code, peer=self.peer.id)
+                
             self._events.emit("participant.left", {"room": self.room_code, "id": self.peer.id})
 
     # ---------- incoming ----------

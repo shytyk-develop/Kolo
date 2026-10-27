@@ -21,7 +21,7 @@ class SignalingHub:
     def __init__(self, broker: Broker) -> None:
         self._broker = broker
         # map: room_code -> {peer_id -> PeerSession}
-        self._local: dict[str, dict[str, "PeerSession"]] = {}
+        self._local: dict[str, dict[str, PeerSession]] = {}
         # map: room_code -> background listen task
         self._listeners: dict[str, asyncio.Task] = {}
         self._lock = asyncio.Lock()
@@ -103,11 +103,26 @@ class SignalingHub:
                 # keep pulling messages from the channel
                 async for envelope in messages:
                     self._dispatch(room, envelope)
+            log.warning("room_listener_ended", room=room)
         except asyncio.CancelledError:
             raise
         except Exception:
             log.exception("room_listener_crashed", room=room)
-            raise
+            # never got subscribed: attach() re-raises this for the session that is connecting
+            if not ready.is_set():
+                raise
+
+        self._on_listener_lost(room)
+
+    def _on_listener_lost(self, room: str) -> None:
+        """Without a subscription local sessions are deaf, so make them reconnect from scratch."""
+        # detach() may have already stopped this listener on purpose
+        if self._listeners.get(room) is not asyncio.current_task():
+            return
+
+        del self._listeners[room]
+        for session in list(self._local.get(room, {}).values()):
+            session.deliver({"type": "_listener_lost"})
 
     def _dispatch(self, room: str, envelope: dict) -> None:
         data = envelope["data"]

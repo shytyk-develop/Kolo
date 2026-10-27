@@ -7,13 +7,14 @@ from datetime import UTC, datetime, timedelta
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from kolo.api.errors import kolo_error_handler
+from kolo.api.errors import dependency_error_handler, kolo_error_handler
 from kolo.api.routes import health, rooms
 from kolo.api.ws import signaling
 from kolo.container import build_container
 from kolo.core.config import Settings, get_settings
 from kolo.core.logging import configure_logging
 from kolo.domain.errors import KoloError
+from kolo.infra.errors import DEPENDENCY_ERROR_TYPES
 
 async def room_cleaner(container):
     """Background worker: sweeps up rooms that expired over a week ago."""
@@ -61,6 +62,8 @@ def create_app(settings: Settings | None = None, *, container_factory=None) -> F
     )
 
     app.add_exception_handler(KoloError, kolo_error_handler)
+    for error_type in DEPENDENCY_ERROR_TYPES:
+        app.add_exception_handler(error_type, dependency_error_handler)
     
     app.include_router(health.router)
     app.include_router(rooms.router, prefix="/api/v1/rooms")
