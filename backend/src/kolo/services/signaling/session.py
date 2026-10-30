@@ -8,12 +8,14 @@ from pydantic import ValidationError
 
 from kolo.core.config import Settings
 from kolo.core.logging import log
-from kolo.domain.models import Peer, Room
+from kolo.domain.models import Peer, Role, Room
 from kolo.infra.presence import PresenceStore
 from kolo.infra.rate_limit import TokenBucket
 from kolo.schemas.signaling import (
+    AdmitMessage,
     AnswerMessage,
     ChatMessage,
+    DenyMessage,
     IceMessage,
     MediaStateMessage,
     OfferMessage,
@@ -60,7 +62,7 @@ class PeerSession:
         self.peer = peer
         self.room_code = room.code
         
-        self.state = "connecting"  # flow: connecting -> joined -> closed
+        self.state = "connecting"  # flow: connecting -> [lobby ->] joined -> closed
         
         self._hub = hub
         self._presence = presence
@@ -71,6 +73,7 @@ class PeerSession:
         self._bucket = TokenBucket(settings.ws_burst, settings.ws_messages_per_second)
         self._violations = 0
         self._replaced = False
+        self._admitting = False
         self._tasks: set[asyncio.Task] = set()
 
     @property
@@ -89,7 +92,14 @@ class PeerSession:
     def deliver(self, data: dict) -> None:
         """Called by the Hub when a message arrives for us."""
         kind = data.get("type")
-        if kind == "_replaced":
+        if kind == "_admitted" and self.state == "lobby" and not self._admitting:
+            # the flag guards against a double click: state stays "lobby" until _join() finishes
+            self._admitting = True
+            self._spawn(self._join_safely())
+        elif kind == "_denied" and self.state == "lobby":
+            self.send({"type": "denied"})
+            self._spawn(self._close_ws(CLOSE_FORBIDDEN, "denied"))
+        elif kind == "_replaced":
             self._replaced = True
             self._spawn(self._close_ws(CLOSE_CONFLICT, "replaced"))
         elif kind == "_listener_lost":
@@ -141,7 +151,14 @@ class PeerSession:
         try:
             await self._hub.attach(self)
             log.info("peer_connected", room=self.room_code, peer=self.peer.id, role=self.peer.role)
-            await self._join()
+            
+            # admitted guests skip the lobby, so a network blip doesn't make the host admit them twice
+            needs_lobby = self.room.lobby_enabled and self.peer.role is Role.GUEST
+            if needs_lobby and not await self._presence.is_admitted(self.room_code, self.peer.id):
+                await self._enter_lobby()
+            else:
+                await self._join()
+                
             await self._read_loop()
         except WebSocketDisconnect:
             pass
@@ -158,6 +175,26 @@ class PeerSession:
             writer.cancel()
             log.info("peer_disconnected", room=self.room_code, peer=self.peer.id)
 
+    async def _enter_lobby(self) -> None:
+        self.state = "lobby"
+        await self._presence.add_waiting(self.room_code, self.peer)
+        self.send({"type": "lobby", "status": "waiting"})
+        await self._hub.publish(
+            self.room_code, 
+            {"type": "lobby-request", "peer": self.peer.to_dict()}, 
+            role=Role.HOST
+        )
+
+    async def _join_safely(self) -> None:
+        """Runs in its own task after the host's admit, so nothing above it would catch errors."""
+        try:
+            await self._join()
+        except SessionClosed as exc:
+            await self._close_ws(exc.code, exc.reason)
+        except Exception:
+            log.exception("peer_admission_failed", room=self.room_code, peer=self.peer.id)
+            await self._close_ws(CLOSE_OVERLOADED, REASON_UNAVAILABLE)
+
     async def _join(self) -> None:
         count = await self._presence.add(self.room_code, self.peer)
         if count > self.room.max_participants:
@@ -165,6 +202,16 @@ class PeerSession:
             metrics.JOINS_REJECTED.labels("room_full").inc()
             self.error("room_full", "Room is full")
             raise SessionClosed(CLOSE_CONFLICT, "room_full")
+            
+        if self.state == "lobby":
+            await self._presence.remove_waiting(self.room_code, self.peer.id)
+            
+        if self.state == "closed":
+            # the client left while we were adding them: don't leave a ghost in the room.
+            # when replaced, this peer id already belongs to the new session
+            if not self._replaced:
+                await self._presence.remove(self.room_code, self.peer.id)
+            return
             
         self.state = "joined"
         
@@ -184,6 +231,9 @@ class PeerSession:
             },
             "peers": peers,
         }
+        if self.peer.role is Role.HOST and self.room.lobby_enabled:
+            welcome["lobby"] = [p.to_dict() for p in await self._presence.list_waiting(self.room_code)]
+            
         self.send(welcome)
         
         await self._hub.publish(
@@ -217,6 +267,16 @@ class PeerSession:
                 log.warning("peer_leave_failed", room=self.room_code, peer=self.peer.id)
                 
             self._events.emit("participant.left", {"room": self.room_code, "id": self.peer.id})
+        elif state == "lobby":
+            try:
+                await self._presence.remove_waiting(self.room_code, self.peer.id)
+                await self._hub.publish(
+                    self.room_code, 
+                    {"type": "lobby-left", "peer_id": self.peer.id}, 
+                    role=Role.HOST
+                )
+            except Exception:
+                log.warning("peer_leave_failed", room=self.room_code, peer=self.peer.id)
 
     # ---------- incoming ----------
     
@@ -262,6 +322,10 @@ class PeerSession:
                 await self._presence.touch(self.room_code, me)
                 self.send({"type": "pong", "ts": int(time.time() * 1000)})
                 
+            # guests in the lobby can only ping: no offers, no chat
+            case _ if not self.is_joined:
+                self.error("not_joined", "Wait for the host to let you in")
+                
             case OfferMessage() | AnswerMessage():
                 await self._hub.publish(
                     self.room_code, 
@@ -298,4 +362,23 @@ class PeerSession:
                         "video": msg.video
                     },
                     exclude=me,
+                )
+                
+            case AdmitMessage() | DenyMessage():
+                if self.peer.role is not Role.HOST:
+                    self.error("forbidden", "Only the host can admit participants")
+                    return
+                    
+                await self._presence.remove_waiting(self.room_code, msg.peer_id)
+                if isinstance(msg, AdmitMessage):
+                    await self._presence.admit(self.room_code, msg.peer_id)
+                    control = "_admitted"
+                else:
+                    control = "_denied"
+                    
+                await self._hub.publish(self.room_code, {"type": control}, to=msg.peer_id)
+                await self._hub.publish(
+                    self.room_code, 
+                    {"type": "lobby-left", "peer_id": msg.peer_id}, 
+                    role=Role.HOST
                 )
