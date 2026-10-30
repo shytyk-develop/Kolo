@@ -17,6 +17,7 @@ from kolo.domain.models import Room, Role
 from kolo.domain.room_codes import generate_room_code, is_valid_room_code, normalize_room_code
 from kolo.infra.presence import PresenceStore
 from kolo.repositories.base import RoomRepository
+from kolo.services.turn import ice_servers_for
 
 def utcnow() -> datetime:
     return datetime.now(UTC)
@@ -131,7 +132,6 @@ class RoomService:
             participant_id=participant_id, 
             role=role, 
             token=token,
-            # pass STUN urls to the client so WebRTC knows how to connect.
-            # we'll add TURN servers here later
-            ice_servers=[{"urls": self._settings.stun_urls}], 
+            # STUN and TURN servers, so WebRTC knows how to connect
+            ice_servers=ice_servers_for(self._settings, participant_id),
         )
