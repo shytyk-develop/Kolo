@@ -3,7 +3,9 @@
 import json
 import time
 from typing import Protocol
+
 from redis.asyncio import Redis
+
 from kolo.domain.models import Peer
 
 KEY_TTL_SECONDS = 24 * 60 * 60

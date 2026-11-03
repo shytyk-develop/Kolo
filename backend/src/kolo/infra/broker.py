@@ -7,7 +7,9 @@ import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Protocol
+
 from redis.asyncio import Redis
+
 
 class Broker(Protocol):
     async def publish(self, channel: str, message: dict) -> None: ...

@@ -11,6 +11,7 @@ from kolo.domain.errors import RoomCodeTaken
 from kolo.domain.models import Room
 from kolo.repositories.sql import SqlRoomRepository
 
+
 def make_room(code: str = "abc-defg-hij") -> Room:
     now = datetime.now(UTC)
     return Room(

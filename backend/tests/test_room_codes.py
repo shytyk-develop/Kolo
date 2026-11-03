@@ -4,6 +4,7 @@ import math
 
 from kolo.domain.room_codes import generate_room_code, is_valid_room_code, normalize_room_code
 
+
 def test_generated_codes_look_like_meet():
     for _ in range(1000):
         assert is_valid_room_code(generate_room_code())

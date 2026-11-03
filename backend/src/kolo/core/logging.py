@@ -4,7 +4,9 @@
 import logging
 
 import structlog
+
 from kolo.core.config import Settings
+
 
 def configure_logging(settings: Settings) -> None:
     renderer = (

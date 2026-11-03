@@ -2,6 +2,7 @@
 
 from typing import Protocol
 
+
 class EventSink(Protocol):
     # interface for firing off analytics or audit events
     def emit(self, event: str, data: dict) -> None: ...

@@ -5,9 +5,10 @@ import hashlib
 import hmac
 import secrets
 import time
-import jwt
 
+import jwt
 from pydantic import BaseModel
+
 from kolo.core.config import Settings
 from kolo.domain.errors import Unauthorized
 from kolo.domain.models import Role

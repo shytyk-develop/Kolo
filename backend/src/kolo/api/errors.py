@@ -2,9 +2,11 @@
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
+
 from kolo.core.logging import log
 from kolo.domain.errors import KoloError, RateLimited
 from kolo.infra.errors import is_dependency_error
+
 
 async def kolo_error_handler(request: Request, exc: KoloError) -> JSONResponse:
     headers = {"Retry-After": "60"} if isinstance(exc, RateLimited) else None

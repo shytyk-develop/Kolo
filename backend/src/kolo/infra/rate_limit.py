@@ -8,6 +8,7 @@ Every request costs 1 token. If the bucket is empty, the request is rejected.
 import time
 from dataclasses import dataclass, field
 
+
 @dataclass
 class TokenBucket:
     capacity: float

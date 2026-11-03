@@ -16,6 +16,7 @@ from kolo.core.logging import configure_logging
 from kolo.domain.errors import KoloError
 from kolo.infra.errors import DEPENDENCY_ERROR_TYPES
 
+
 async def room_cleaner(container):
     """Background worker: sweeps up rooms that expired over a week ago."""
     while True:

@@ -3,6 +3,7 @@
 from kolo.domain.errors import RoomCodeTaken
 from kolo.domain.models import Room
 
+
 class InMemoryRoomRepository:
     def __init__(self) -> None:
         self._rooms: dict[str, Room] = {}

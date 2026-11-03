@@ -1,8 +1,10 @@
 """Alembic в асинхронном режиме: миграции идут через тот же драйвер asyncpg."""
 import asyncio
 from logging.config import fileConfig
+
 from alembic import context
 from sqlalchemy.ext.asyncio import create_async_engine
+
 from kolo.core.config import get_settings
 from kolo.db.tables import Base
 

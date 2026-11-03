@@ -10,6 +10,7 @@ from kolo.db.tables import RoomRow
 from kolo.domain.errors import RoomCodeTaken
 from kolo.domain.models import Room
 
+
 def _aware(dt: datetime) -> datetime:
     return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
 
@@ -50,7 +51,6 @@ class SqlRoomRepository:
             return _to_domain(row) if row else None
 
     async def delete_expired(self, older_than: datetime) -> int:
-        from sqlalchemy import delete
         async with self._sessions() as session:
             # Находим все строки, у которых срок годности меньше переданной даты
             stmt = delete(RoomRow).where(RoomRow.expires_at < older_than)

@@ -2,6 +2,7 @@
 
 from kolo.core.config import Settings
 
+
 def test_settings_from_env(monkeypatch):
     monkeypatch.setenv("KOLO_ROOM_TTL_HOURS", "5")
     monkeypatch.setenv("KOLO_CORS_ORIGINS", '["https://kolo.app"]')
