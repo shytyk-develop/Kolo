@@ -5,6 +5,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 from enum import StrEnum
 
+
 class Role(StrEnum):
     HOST = "host"
     GUEST = "guest"
@@ -21,6 +22,10 @@ class Room:
 
     def is_expired(self, now: datetime) -> bool:
         return now >= self.expires_at
+
+    def requires_admission(self, role: Role) -> bool:
+        """Whether the host has to let this role in before it sees or sends anything."""
+        return self.lobby_enabled and role is Role.GUEST
 
 @dataclass(frozen=True, slots=True)
 class Peer:

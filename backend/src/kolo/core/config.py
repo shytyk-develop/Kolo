@@ -4,12 +4,31 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import SecretStr
+from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+DEFAULT_JWT_SECRET = "dev-only-secret-change-me-in-production-0123456789"
+DEFAULT_LIVEKIT_SECRET = "secret"
+
+# Must never reach production: the defaults above, what .env.example suggests, and empty values
+PUBLICLY_KNOWN_SECRETS = {
+    DEFAULT_JWT_SECRET,
+    DEFAULT_LIVEKIT_SECRET,
+    "your-secret-here",
+    "same-as-static-auth-secret-in-coturn",
+    "",
+}
+
+
+def _is_known(secret: SecretStr | None) -> bool:
+    return secret is None or secret.get_secret_value() in PUBLICLY_KNOWN_SECRETS
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_prefix="KOLO_", extra="ignore")
+    # hide_input_in_errors: by default a validation error prints the raw values, secrets included
+    model_config = SettingsConfigDict(
+        env_file=".env", env_prefix="KOLO_", extra="ignore", hide_input_in_errors=True
+    )
 
     env: Literal["dev", "test", "prod"] = "dev"
     public_url: str = "http://localhost:3000"  # frontend address, for invitation links
@@ -19,7 +38,7 @@ class Settings(BaseSettings):
     redis_url: str | None = None
 
     # Security
-    jwt_secret: SecretStr = SecretStr("dev-only-secret-change-me-in-production-0123456789")
+    jwt_secret: SecretStr = SecretStr(DEFAULT_JWT_SECRET)
     jwt_ttl_seconds: int = 2 * 60 * 60
     cors_origins: list[str] = ["http://localhost:3000"]
     api_keys: list[SecretStr] = []
@@ -27,7 +46,7 @@ class Settings(BaseSettings):
 
     # Rooms
     default_max_participants: int = 2
-    max_participants_limit: int = 8
+    max_participants_limit: int = 50
     room_ttl_hours: int = 24
     room_cache_ttl_seconds: int = 60
     presence_ttl_seconds: int = 60
@@ -37,6 +56,13 @@ class Settings(BaseSettings):
     turn_urls: list[str] = []
     turn_secret: SecretStr | None = None
     turn_ttl_seconds: int = 60 * 60
+
+    # SFU (LiveKit). Without livekit_url every room stays peer-to-peer.
+    # devkey/secret are the values built into "livekit-server --dev", set your own in production
+    p2p_max_participants: int = 4
+    livekit_url: str | None = None
+    livekit_api_key: str = "devkey"
+    livekit_api_secret: SecretStr = SecretStr(DEFAULT_LIVEKIT_SECRET)
 
     # Rate limits
     rooms_per_minute_per_ip: int = 10
@@ -52,6 +78,23 @@ class Settings(BaseSettings):
     rooms_per_minute_per_ip: int = 10
 
     frontend_url: str = "http://localhost:3000"
+
+    @model_validator(mode="after")
+    def _refuse_known_secrets_in_prod(self) -> "Settings":
+        if self.env != "prod":
+            return self
+
+        missing = []
+        if _is_known(self.jwt_secret):
+            missing.append("KOLO_JWT_SECRET")
+        if _is_known(self.turn_secret):
+            missing.append("KOLO_TURN_SECRET")
+        if self.livekit_url and _is_known(self.livekit_api_secret):
+            missing.append("KOLO_LIVEKIT_API_SECRET")
+
+        if missing:
+            raise ValueError(f"Refusing to start in prod, set real values for: {', '.join(missing)}")
+        return self
 
 
 @lru_cache

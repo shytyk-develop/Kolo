@@ -24,6 +24,7 @@ from kolo.schemas.signaling import (
 )
 from kolo.services import metrics
 from kolo.services.events import EventSink
+from kolo.services.sfu import sfu_token, uses_sfu
 from kolo.services.signaling.hub import SignalingHub
 
 # Custom closure codes (4000-4999 are for apps per RFC 6455)
@@ -153,7 +154,7 @@ class PeerSession:
             log.info("peer_connected", room=self.room_code, peer=self.peer.id, role=self.peer.role)
             
             # admitted guests skip the lobby, so a network blip doesn't make the host admit them twice
-            needs_lobby = self.room.lobby_enabled and self.peer.role is Role.GUEST
+            needs_lobby = self.room.requires_admission(self.peer.role)
             if needs_lobby and not await self._presence.is_admitted(self.room_code, self.peer.id):
                 await self._enter_lobby()
             else:
@@ -233,6 +234,11 @@ class PeerSession:
         }
         if self.peer.role is Role.HOST and self.room.lobby_enabled:
             welcome["lobby"] = [p.to_dict() for p in await self._presence.list_waiting(self.room_code)]
+        if uses_sfu(self._settings, self.room) and self.room.requires_admission(self.peer.role):
+            # /join held this token back until now
+            welcome["sfu_token"] = sfu_token(
+                self._settings, self.room, self.peer.id, self.peer.name, self.peer.role
+            )
             
         self.send(welcome)
         

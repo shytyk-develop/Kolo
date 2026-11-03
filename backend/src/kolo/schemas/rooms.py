@@ -1,8 +1,12 @@
 # src/kolo/schemas/rooms.py
 
 from datetime import datetime
+from typing import Literal
+
 from pydantic import BaseModel, Field, field_validator
+
 from kolo.domain.models import Role
+
 
 class CreateRoomRequest(BaseModel):
     name: str | None = Field(default=None, max_length=80)
@@ -53,4 +57,7 @@ class JoinResponse(BaseModel):
     ws_path: str
     expires_in: int
     ice_servers: list[IceServer]  # need this to pass TURN/STUN servers to the frontend for WebRTC
+    media_mode: Literal["p2p", "sfu"] = "p2p"
+    sfu_url: str | None = None
+    sfu_token: str | None = None
 

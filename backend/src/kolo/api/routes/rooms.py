@@ -1,10 +1,12 @@
 from typing import Annotated
+
 from fastapi import APIRouter, Header, Request
 
 from kolo.api.deps import ContainerDep, client_ip
 from kolo.core.security import check_api_key
 from kolo.domain.errors import RateLimited, Unauthorized
-from kolo.schemas.rooms import CreateRoomRequest, RoomCreatedResponse, JoinRequest, JoinResponse
+from kolo.schemas.rooms import CreateRoomRequest, JoinRequest, JoinResponse, RoomCreatedResponse
+from kolo.services.sfu import sfu_token, uses_sfu
 
 router = APIRouter(tags=["rooms"])
 
@@ -41,6 +43,17 @@ async def create_room(
 @router.post("/{code}/join", response_model=JoinResponse, response_model_exclude_none=True)
 async def join_room(code: str, body: JoinRequest, c: ContainerDep) -> JoinResponse:
     ticket = await c.rooms.join(code, body.display_name, body.host_secret)
+
+    media: dict = {}
+    if uses_sfu(c.settings, ticket.room):
+        media = {"media_mode": "sfu", "sfu_url": c.settings.livekit_url}
+        # LiveKit knows nothing about our lobby: a token handed out here would let a guest skip it.
+        # guests who need admission get theirs in the welcome message, see PeerSession._join
+        if not ticket.room.requires_admission(ticket.role):
+            media["sfu_token"] = sfu_token(
+                c.settings, ticket.room, ticket.participant_id, body.display_name, ticket.role
+            )
+
     return JoinResponse(
         token=ticket.token,
         participant_id=ticket.participant_id,
@@ -48,4 +61,5 @@ async def join_room(code: str, body: JoinRequest, c: ContainerDep) -> JoinRespon
         ws_path=f"/ws/rooms/{ticket.room.code}",
         expires_in=c.settings.jwt_ttl_seconds,
         ice_servers=ticket.ice_servers,
+        **media,
     )
