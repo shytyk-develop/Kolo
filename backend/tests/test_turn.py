@@ -31,7 +31,8 @@ def test_turn_credentials_match_known_value() -> None:
 
 
 def test_ice_servers_without_turn_have_no_credentials(settings: Settings) -> None:
-    settings.stun_urls, settings.turn_urls = STUN, TURN  # URLs alone, no secret to sign logins with
+    settings.stun_urls, settings.turn_urls = STUN, TURN
+    settings.turn_secret = None  # URLs alone, no secret to sign logins with
 
     assert ice_servers_for(settings, "p_42") == [{"urls": STUN}]
 
@@ -65,7 +66,7 @@ def test_join_returns_a_personal_turn_login(settings: Settings) -> None:
 
 
 def test_join_without_turn_returns_only_stun(settings: Settings) -> None:
-    settings.stun_urls = STUN
+    settings.stun_urls, settings.turn_urls, settings.turn_secret = STUN, [], None
 
     with TestClient(create_app(settings)) as client:
         code = client.post("/api/v1/rooms", json={}).json()["code"]

@@ -1,4 +1,5 @@
 """Integration test: two clients walk through the signaling handshake over real WebSocket routes."""
+from collections import Counter
 from collections.abc import Iterator
 from contextlib import asynccontextmanager
 
@@ -18,75 +19,148 @@ from kolo.domain.room_codes import generate_room_code
 from kolo.infra.broker import MemoryBroker
 from kolo.main import create_app
 from kolo.services.signaling.hub import SignalingHub
-from kolo.services.signaling.session import CLOSE_OVERLOADED
+from kolo.services.signaling.session import CLOSE_OVERLOADED, CLOSE_POLICY, MAX_VIOLATIONS
+from tests.conftest import create_room, join
 
 
-@pytest.fixture
-def client(settings: Settings) -> Iterator[TestClient]:
-    # "with" runs lifespan, which builds the container and keeps one event loop for all sockets
-    with TestClient(create_app(settings)) as test_client:
-        yield test_client
+def ws_url(ticket: dict) -> str:
+    return f"{ticket['ws_path']}?token={ticket['token']}"
 
 
-def join(client: TestClient, code: str, name: str, host_secret: str | None = None) -> dict:
-    response = client.post(
-        f"/api/v1/rooms/{code}/join",
-        json={"display_name": name, "host_secret": host_secret},
-    )
-    assert response.status_code == 200, response.text
-    return response.json()
+def test_two_peers_exchange_offer_answer_ice(client, events):
+    room = create_room(client)
+    anya = join(client, room["code"], "Аня", room["host_secret"])
+    borya = join(client, room["code"], "Боря")
 
+    with client.websocket_connect(ws_url(anya)) as ws_a:
+        welcome_a = ws_a.receive_json()
+        assert welcome_a["type"] == "welcome" and welcome_a["peers"] == []
+        assert welcome_a["you"] == {"id": anya["participant_id"], "name": "Аня", "role": "host"}
 
-def test_two_peers_handshake_and_offer(client: TestClient) -> None:
-    created = client.post("/api/v1/rooms", json={"name": "Kolo"})
-    assert created.status_code == 201, created.text
-    room = created.json()
-    code = room["code"]
+        with client.websocket_connect(ws_url(borya)) as ws_b:
+            welcome_b = ws_b.receive_json()
+            assert [p["name"] for p in welcome_b["peers"]] == ["Аня"]
 
-    anya = join(client, code, "Аня", room["host_secret"])
-    boris = join(client, code, "Боря")
-    assert anya["role"] == "host"
-    assert boris["role"] == "guest"
-
-    anya_peer = {"id": anya["participant_id"], "name": "Аня", "role": "host"}
-    boris_peer = {"id": boris["participant_id"], "name": "Боря", "role": "guest"}
-
-    with client.websocket_connect(f"{anya['ws_path']}?token={anya['token']}") as ws_anya:
-        welcome = ws_anya.receive_json()
-        assert welcome["type"] == "welcome"
-        assert welcome["you"] == anya_peer
-        assert welcome["room"]["code"] == code
-        assert welcome["peers"] == []
-
-        with client.websocket_connect(f"{boris['ws_path']}?token={boris['token']}") as ws_boris:
-            welcome = ws_boris.receive_json()
-            assert welcome["type"] == "welcome"
-            assert welcome["you"] == boris_peer
-            assert welcome["peers"] == [anya_peer]
-
-            assert ws_anya.receive_json() == {"type": "peer-joined", "peer": boris_peer}
-
-            ws_boris.send_json({"type": "offer", "to": anya["participant_id"], "sdp": "v=0 привет"})
-            assert ws_anya.receive_json() == {
-                "type": "offer",
-                "from": boris["participant_id"],
-                "sdp": "v=0 привет",
+            joined = ws_a.receive_json()
+            assert joined == {
+                "type": "peer-joined",
+                "peer": {"id": borya["participant_id"], "name": "Боря", "role": "guest"},
             }
 
-            # Spoofing attempt: a client-supplied "from" must be replaced with the real sender
-            ws_boris.send_json(
+            # The newcomer calls those who are already in the room
+            ws_b.send_json({"type": "offer", "to": anya["participant_id"], "sdp": "v=0..."})
+            offer = ws_a.receive_json()
+            assert offer == {"type": "offer", "from": borya["participant_id"], "sdp": "v=0..."}
+
+            ws_a.send_json({"type": "answer", "to": borya["participant_id"], "sdp": "v=0 ans"})
+            assert ws_b.receive_json()["type"] == "answer"
+
+            ws_a.send_json(
                 {
-                    "type": "offer",
-                    "to": anya["participant_id"],
-                    "from": anya["participant_id"],
-                    "sdp": "v=0 подделка",
+                    "type": "ice",
+                    "to": borya["participant_id"],
+                    "candidate": {"candidate": "candidate:1 1 udp ...", "sdpMid": "0"},
                 }
             )
-            assert ws_anya.receive_json() == {
-                "type": "offer",
-                "from": boris["participant_id"],
-                "sdp": "v=0 подделка",
-            }
+            ice = ws_b.receive_json()
+            assert ice["from"] == anya["participant_id"] and ice["candidate"]["sdpMid"] == "0"
+
+        left = ws_a.receive_json()
+        assert left == {"type": "peer-left", "peer_id": borya["participant_id"]}
+
+    names = [name for name, _ in events.events]
+    assert names.count("participant.joined") == 2 and "participant.left" in names
+
+
+def test_from_cannot_be_spoofed(client):
+    room = create_room(client)
+    a, b = join(client, room["code"], "A"), join(client, room["code"], "B")
+    with client.websocket_connect(ws_url(a)) as ws_a, client.websocket_connect(ws_url(b)) as ws_b:
+        ws_a.receive_json(), ws_b.receive_json(), ws_a.receive_json()
+        ws_b.send_json({"type": "offer", "to": a["participant_id"], "sdp": "x", "from": "admin"})
+        assert ws_a.receive_json()["from"] == b["participant_id"]
+
+
+def test_bad_messages_get_errors_not_disconnects(client):
+    room = create_room(client)
+    a = join(client, room["code"], "A")
+    with client.websocket_connect(ws_url(a)) as ws:
+        ws.receive_json()
+        ws.send_text("не json")
+        assert ws.receive_json()["code"] == "bad_message"
+        ws.send_json({"type": "launch-rockets"})
+        assert ws.receive_json()["code"] == "bad_message"
+        ws.send_json({"type": "admit", "peer_id": "p_whatever"})
+        assert ws.receive_json()["code"] == "forbidden"  # a guest can't let people in
+
+
+def test_invalid_token_closes_with_4401(client):
+    room = create_room(client)
+    with client.websocket_connect(f"/ws/rooms/{room['code']}?token=garbage") as ws:
+        with pytest.raises(WebSocketDisconnect) as exc:
+            ws.receive_json()
+        assert exc.value.code == 4401
+
+
+def test_foreign_origin_rejected(client):
+    room = create_room(client)
+    ticket = join(client, room["code"], "A")
+    with pytest.raises(WebSocketDisconnect):
+        with client.websocket_connect(ws_url(ticket), headers={"origin": "https://evil.example"}):
+            pass
+
+
+def test_room_full(client):
+    room = create_room(client, max_participants=2)
+    tickets = [join(client, room["code"], name) for name in ("A", "B", "C")]
+    with (
+        client.websocket_connect(ws_url(tickets[0])) as ws_a,
+        client.websocket_connect(ws_url(tickets[1])) as ws_b,
+    ):
+        ws_a.receive_json(), ws_b.receive_json()
+        # REST doesn't let a fourth one in either
+        response = client.post(f"/api/v1/rooms/{room['code']}/join", json={"display_name": "D"})
+        assert response.status_code == 409
+        with client.websocket_connect(ws_url(tickets[2])) as ws_c:
+            assert ws_c.receive_json()["code"] == "room_full"
+            with pytest.raises(WebSocketDisconnect) as exc:
+                ws_c.receive_json()
+            assert exc.value.code == 4409
+
+
+# ---------- message rate limit ----------
+
+
+def test_websocket_rate_limit_lets_only_the_burst_through(client, settings):
+    # almost no refill while the test runs, so the numbers are exact: the burst passes, the rest doesn't
+    settings.ws_messages_per_second = 0.001
+    ticket = join(client, create_room(client)["code"], "A")
+
+    with client.websocket_connect(ws_url(ticket)) as ws:
+        ws.receive_json()
+        for _ in range(60):
+            ws.send_json({"type": "ping"})
+        replies = [ws.receive_json() for _ in range(60)]
+
+    kinds = Counter(reply["type"] if reply["type"] == "pong" else reply["code"] for reply in replies)
+    assert kinds == {"pong": 40, "rate_limited": 20}
+
+
+def test_endless_flood_gets_disconnected(client, settings):
+    settings.ws_messages_per_second = 0.001
+    ticket = join(client, create_room(client)["code"], "A")
+
+    with client.websocket_connect(ws_url(ticket)) as ws:
+        ws.receive_json()
+        for _ in range(settings.ws_burst + MAX_VIOLATIONS):
+            ws.send_json({"type": "ping"})
+
+        assert all(ws.receive_json()["type"] == "pong" for _ in range(settings.ws_burst))
+        # the last violation closes the socket instead of answering
+        assert all(ws.receive_json()["code"] == "rate_limited" for _ in range(MAX_VIOLATIONS - 1))
+        with pytest.raises(WebSocketDisconnect) as closed:
+            ws.receive_json()
+        assert closed.value.code == CLOSE_POLICY == 1008
 
 
 # ---------- broker outages ----------

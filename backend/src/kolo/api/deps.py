@@ -13,7 +13,7 @@ def get_container(request: Request) -> Container:
 ContainerDep = Annotated[Container, Depends(get_container)]
 
 def client_ip(request: Request) -> str:
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
+    # never read X-Forwarded-For here: any client can write anything into it.
+    # behind a proxy, uvicorn --proxy-headers --forwarded-allow-ips=<proxy address> puts the real
+    # client address into request.client, and only when the request came from that proxy
     return request.client.host if request.client else "127.0.0.1"
