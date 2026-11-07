@@ -1,33 +1,38 @@
 # tests/test_security.py
 
+import logging
 import time
 from pathlib import Path
 
 import jwt
 import pytest
 from pydantic import ValidationError
+from uvicorn.logging import AccessFormatter
 
 from kolo.core.config import DEFAULT_JWT_SECRET, Settings
+from kolo.core.logging import configure_logging
 from kolo.core.security import create_room_token, decode_room_token
 from kolo.domain.errors import Unauthorized
 from kolo.domain.models import Role
 
 
 def test_token_roundtrip(settings):
-    token = create_room_token(settings, room="abc-defg-hij", participant_id="p_1", name="Аня", role=Role.HOST)
+    token = create_room_token(
+        settings, room="abc-defg-hij", participant_id="p_1", name="Anya", role=Role.HOST
+    )
     claims = decode_room_token(settings, token)
     assert (claims.sub, claims.room, claims.role) == ("p_1", "abc-defg-hij", Role.HOST)
 
 def test_expired_token_rejected(settings):
-    settings.jwt_ttl_seconds = -1  # Делаем токен сразу протухшим
+    settings.jwt_ttl_seconds = -1  # token is already expired
     token = create_room_token(
-        settings, room="abc-defg-hij", participant_id="p_1", name="Аня", role=Role.GUEST
+        settings, room="abc-defg-hij", participant_id="p_1", name="Anya", role=Role.GUEST
     )
     with pytest.raises(Unauthorized):
         decode_room_token(settings, token)
 
 def test_alg_none_rejected(settings):
-    # Хакерский токен: пытаемся обмануть библиотеку, сказав, что алгоритм "none"
+    # fake token with alg "none"
     forged = jwt.encode(
         {
             "sub": "p_1",
@@ -44,7 +49,7 @@ def test_alg_none_rejected(settings):
         decode_room_token(settings, forged)
 
 
-# ---------- production refuses to start with secrets everyone knows ----------
+# ---------- prod refuses known secrets ----------
 
 REAL = {"jwt_secret": "a-real-jwt-secret-from-the-vault", "turn_secret": "a-real-turn-secret-from-the-vault"}
 SFU_URL = "wss://sfu.example.com"
@@ -58,7 +63,7 @@ def prod_settings(**overrides) -> Settings:
 def test_prod_starts_with_real_secrets():
     settings = prod_settings()
     assert settings.env == "prod"
-    assert settings.livekit_url is None  # the LiveKit secret isn't used without an SFU, so it isn't required
+    assert settings.livekit_url is None  # no sfu -> livekit secret not needed
 
 
 def test_prod_starts_with_a_real_livekit_secret():
@@ -99,7 +104,7 @@ def test_prod_refuses_placeholders_copied_from_env_example():
 
 
 def test_refusal_does_not_print_real_values(monkeypatch):
-    # this message ends up in deploy logs, and pydantic prints the raw input by default
+    # this goes to deploy logs, pydantic prints input by default
     monkeypatch.setenv("KOLO_DATABASE_URL", "postgresql+asyncpg://kolo:REAL-DB-PASSWORD@db/kolo")
     monkeypatch.setenv("KOLO_TURN_SECRET", "REAL-TURN-SECRET")
 
@@ -108,8 +113,7 @@ def test_refusal_does_not_print_real_values(monkeypatch):
 
     message = str(refused.value)
     assert "KOLO_JWT_SECRET" in message
-    # pydantic cuts long input in the middle, so a secret may slip past the checks below by luck:
-    # the part that matters is that no input is printed at all
+    # pydantic cuts long input, so just check that no input is printed
     assert "input_value" not in message
     assert "REAL-DB-PASSWORD" not in message
     assert "REAL-TURN-SECRET" not in message
@@ -123,3 +127,36 @@ def test_defaults_stay_fine_outside_prod(env):
 def test_unknown_env_name_is_refused():
     with pytest.raises(ValidationError):
         Settings(_env_file=None, env="production")
+
+
+# ---------- no tokens in server logs ----------
+
+JWT = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJwXzEifQ.c2lnbmF0dXJl"
+
+
+@pytest.mark.parametrize("logger_name", ["uvicorn.error", "uvicorn.access"])
+def test_server_logs_hide_the_token(settings, caplog, logger_name):
+    configure_logging(settings)
+
+    with caplog.at_level(logging.INFO, logger=logger_name):
+        # same call uvicorn makes for every ws
+        logging.getLogger(logger_name).info(
+            '%s - "WebSocket %s" [accepted]', "10.0.0.1:5000", f"/ws/rooms/abc-defg-hij?token={JWT}"
+        )
+
+    assert JWT not in caplog.text
+    assert "/ws/rooms/abc-defg-hij?token=***" in caplog.text
+
+
+def test_access_log_format_survives_redaction(settings, caplog):
+    configure_logging(settings)
+
+    with caplog.at_level(logging.INFO, logger="uvicorn.access"):
+        logging.getLogger("uvicorn.access").info(
+            '%s - "%s %s HTTP/%s" %d', "10.0.0.1:5000", "GET", f"/x?a=1&token={JWT}&b=2", "1.1", 200
+        )
+
+    # uvicorn's formatter reads args by position, must stay a 5-tuple
+    record = caplog.records[-1]
+    formatted = AccessFormatter(fmt="%(request_line)s %(status_code)s", use_colors=False).format(record)
+    assert formatted == "GET /x?a=1&token=***&b=2 HTTP/1.1 200 OK"

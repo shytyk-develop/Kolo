@@ -1,10 +1,9 @@
 # src/kolo/services/signaling/hub.py
 
-"""
-Hub: connects WebSocket sessions in this process together and syncs them across nodes.
-Every message goes into the room's pub/sub channel wrapped in an 'envelope':
-{"to": id | None, "exclude": id | None, "role": "host" | None, "data": {...}}
-Each node listens to the room channel and forwards the envelope to matching local sessions.
+"""Links ws sessions together, in this process and across nodes.
+
+Each message goes to the room channel as {"to", "exclude", "role", "data"},
+every node passes it to its matching local sessions.
 """
 
 import asyncio
@@ -20,9 +19,9 @@ if TYPE_CHECKING:
 class SignalingHub:
     def __init__(self, broker: Broker) -> None:
         self._broker = broker
-        # map: room_code -> {peer_id -> PeerSession}
+        # room -> {peer_id -> session}
         self._local: dict[str, dict[str, PeerSession]] = {}
-        # map: room_code -> background listen task
+        # room -> listener task
         self._listeners: dict[str, asyncio.Task] = {}
         self._lock = asyncio.Lock()
 
@@ -41,11 +40,11 @@ class SignalingHub:
             old = sessions.get(session.peer.id)
             sessions[session.peer.id] = session
             
-            # if the user opened a second tab, boot the old connection
+            # second tab: kick the old one
             if old is not None: 
                 old.deliver({"type": "_replaced"})
                 
-            # if this is the first person in the room on this node, subscribe to the broker
+            # first peer of the room on this node -> subscribe
             if room not in self._listeners:
                 ready = asyncio.Event()
                 task = asyncio.create_task(self._listen(room, ready))
@@ -53,16 +52,16 @@ class SignalingHub:
                 
                 waiter = asyncio.create_task(ready.wait())
                 
-                # wait until the subscription is active OR the task crashes immediately
+                # wait for the subscribe or a crash
                 done, _ = await asyncio.wait(
                     {waiter, task}, 
                     return_when=asyncio.FIRST_COMPLETED
                 )
                 
-                if task in done:  # subscription failed before it even started
+                if task in done:  # subscribe failed
                     waiter.cancel()
                     self._listeners.pop(room, None)
-                    task.result()  # raise the inner exception so we see the error
+                    task.result()  # raise the real error
 
     async def detach(self, session: "PeerSession") -> None:
         room = session.room_code
@@ -70,12 +69,11 @@ class SignalingHub:
         async with self._lock:
             sessions = self._local.get(room, {})
             
-            # only delete if it's actually the exact session we're detaching
-            # (protects against race conditions with second tabs)
+            # only if it's this exact session (second tab race)
             if sessions.get(session.peer.id) is session:
                 del sessions[session.peer.id]
                 
-            # if everyone left, we don't need to listen to this room's channel anymore
+            # nobody left here -> stop listening
             if not sessions:
                 self._local.pop(room, None)
                 task = self._listeners.pop(room, None)
@@ -91,16 +89,16 @@ class SignalingHub:
         exclude: str | None = None, 
         role: str | None = None,
     ) -> None:
-        # pack the payload with routing metadata and blast it out
+        # wrap with routing info and publish
         envelope = {"to": to, "exclude": exclude, "role": role, "data": data}
         await self._broker.publish(self.channel(room_code), envelope)
 
     async def _listen(self, room: str, ready: asyncio.Event) -> None:
         try:
             async with self._broker.subscribe(self.channel(room)) as messages:
-                ready.set()  # signal to attach() that we are successfully hooked up
+                ready.set()  # tell attach() we're subscribed
                 
-                # keep pulling messages from the channel
+                # read the channel
                 async for envelope in messages:
                     self._dispatch(room, envelope)
             log.warning("room_listener_ended", room=room)
@@ -108,15 +106,15 @@ class SignalingHub:
             raise
         except Exception:
             log.exception("room_listener_crashed", room=room)
-            # never got subscribed: attach() re-raises this for the session that is connecting
+            # never subscribed: attach() re-raises this
             if not ready.is_set():
                 raise
 
         self._on_listener_lost(room)
 
     def _on_listener_lost(self, room: str) -> None:
-        """Without a subscription local sessions are deaf, so make them reconnect from scratch."""
-        # detach() may have already stopped this listener on purpose
+        """Lost the subscription: close local sessions so they reconnect."""
+        # detach() may have stopped it on purpose
         if self._listeners.get(room) is not asyncio.current_task():
             return
 
@@ -129,7 +127,7 @@ class SignalingHub:
         is_control = data.get("type", "").startswith("_")
         
         for session in list(self._local.get(room, {}).values()):
-            # check all the routing filters
+            # routing filters
             if envelope["to"] and session.peer.id != envelope["to"]:
                 continue
             if envelope["exclude"] == session.peer.id:
@@ -137,8 +135,7 @@ class SignalingHub:
             if envelope["role"] and session.peer.role != envelope["role"]:
                 continue
                 
-            # people stuck in the lobby shouldn't see room media/chat traffic, 
-            # but they DO need system/control events (like being admitted or kicked)
+            # lobby guests get no room traffic, only control messages (_admitted etc)
             if not session.is_joined and not is_control:
                 continue 
                 

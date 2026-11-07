@@ -1,6 +1,6 @@
 # src/kolo/db/tables.py
 
-"""SQLAlchemy 2.0"""
+"""SQLAlchemy 2.0 tables."""
 import uuid
 from datetime import datetime
 

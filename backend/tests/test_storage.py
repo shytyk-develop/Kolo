@@ -29,7 +29,7 @@ def make_room(code: str = "abc-defg-hij") -> Room:
 
 @pytest.fixture
 async def sql_repo():
-    # spin up a quick in-memory sqlite db just for testing
+    # in-memory sqlite
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -41,15 +41,15 @@ async def test_sql_repo_roundtrip(sql_repo):
     room = make_room()
     await sql_repo.add(room)
     
-    # make sure it actually saved and we can fetch it back
+    # saved and read back
     assert await sql_repo.get_by_code(room.code) == room
-    # bogus codes should just return None
+    # unknown code -> None
     assert await sql_repo.get_by_code("zzz-zzzz-zzz") is None
 
 async def test_sql_repo_unique_code(sql_repo):
     await sql_repo.add(make_room())
     
-    # db should blow up if we try to reuse a room code
+    # same code twice fails
     with pytest.raises(RoomCodeTaken):
         await sql_repo.add(make_room())
 

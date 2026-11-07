@@ -1,6 +1,6 @@
 # src/kolo/container.py
 
-"""Wires all application dependencies together in one place (composition root)."""
+"""Builds all app dependencies in one place."""
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
@@ -28,18 +28,18 @@ Check = Callable[[], Awaitable[None]]
 class Container:
     settings: Settings
     repo: RoomRepository
-    presence: PresenceStore  # who is in which room right now
+    presence: PresenceStore  # who is in which room
     broker: Broker  # pub/sub between sessions
-    hub: SignalingHub  # routes messages to local WebSocket sessions
+    hub: SignalingHub  # sends messages to local ws sessions
     rooms: RoomService
     events: EventSink  # analytics/audit events
-    room_limiter: KeyedRateLimiter  # prevents IP spam for room creation
-    checks: dict[str, Check] = field(default_factory=dict)  # readiness probes
-    # keep track of cleanup stuff (like closing db connections)
+    room_limiter: KeyedRateLimiter  # per ip limit for creating rooms
+    checks: dict[str, Check] = field(default_factory=dict)  # readiness checks
+    # cleanup callbacks (close db etc)
     closers: list[Callable[[], Awaitable[None]]] = field(default_factory=list)
 
     async def aclose(self) -> None:
-        # run all cleanups when the server stops, in reverse order of creation
+        # on shutdown, in reverse order
         for close in reversed(self.closers):
             await close()
 
@@ -53,7 +53,7 @@ async def build_container(
     checks: dict[str, Check] = {}
     closers: list[Callable[[], Awaitable[None]]] = []
 
-    # 1. Redis or process memory
+    # 1. redis or memory
     redis: Redis | None = None
     if redis_factory is not None:
         redis = redis_factory()
@@ -76,7 +76,7 @@ async def build_container(
         cache, broker = MemoryCache(), MemoryBroker()
         presence = MemoryPresence(settings.presence_ttl_seconds)
 
-    # 2. Real database or process memory (handy for quick tests)
+    # 2. real db or memory
     base_repo: RoomRepository
     if settings.database_url.startswith("memory"):
         base_repo = InMemoryRoomRepository()
@@ -93,10 +93,10 @@ async def build_container(
 
     repo = CachedRoomRepository(base_repo, cache, settings.room_cache_ttl_seconds)
 
-    # 3. Outgoing events (webhooks arrive in chapter 15)
+    # 3. events (webhooks in ch15)
     events = events or NullEventSink()
 
-    # set up rate limiting: bucket size = max per min, refill rate = drops per sec
+    # bucket = limit per minute, refills every second
     per_minute = settings.rooms_per_minute_per_ip
 
     return Container(

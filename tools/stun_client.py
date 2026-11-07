@@ -1,6 +1,6 @@
-"""Mini STUN client: asks a STUN server "which address do you see me from?".
+"""Mini STUN client: asks the server which address it sees us from.
 
-Format per RFC 5389. Run: python tools/stun_client.py stun.l.google.com 19302
+Run: python tools/stun_client.py stun.l.google.com 19302
 """
 import os
 import socket
@@ -14,8 +14,8 @@ XOR_MAPPED_ADDRESS = 0x0020
 
 
 def build_request() -> tuple[bytes, bytes]:
-    transaction_id = os.urandom(12)  # 96 random bits to match the response with the request
-    # 20 byte header: type (2), attributes length (2), magic cookie (4), transaction id (12)
+    transaction_id = os.urandom(12)  # random id to match the response
+    # 20 byte header: type, length, magic cookie, transaction id
     header = struct.pack("!HHI", BINDING_REQUEST, 0, MAGIC_COOKIE) + transaction_id
     return header, transaction_id
 
@@ -23,7 +23,7 @@ def build_request() -> tuple[bytes, bytes]:
 def parse_response(data: bytes, transaction_id: bytes) -> tuple[str, int]:
     msg_type, length, cookie = struct.unpack("!HHI", data[:8])
     if msg_type != BINDING_SUCCESS or cookie != MAGIC_COOKIE or data[8:20] != transaction_id:
-        raise ValueError("Это не ответ на наш запрос")
+        raise ValueError("Not a response to our request")
 
     offset = 20
     while offset < 20 + length:
@@ -33,14 +33,14 @@ def parse_response(data: bytes, transaction_id: bytes) -> tuple[str, int]:
         if attr_type == XOR_MAPPED_ADDRESS:
             family = value[1]
             if family != 0x01:
-                raise ValueError("Пример понимает только IPv4")
+                raise ValueError("This example only handles IPv4")
             port = struct.unpack("!H", value[2:4])[0] ^ (MAGIC_COOKIE >> 16)
             ip_int = struct.unpack("!I", value[4:8])[0] ^ MAGIC_COOKIE
             return socket.inet_ntoa(struct.pack("!I", ip_int)), port
 
-        offset += 4 + attr_len + (-attr_len % 4)  # attributes are aligned to 4 bytes
+        offset += 4 + attr_len + (-attr_len % 4)  # attributes are padded to 4 bytes
 
-    raise ValueError("В ответе нет XOR-MAPPED-ADDRESS")
+    raise ValueError("No XOR-MAPPED-ADDRESS in the response")
 
 
 def whats_my_address(host: str, port: int, timeout: float = 2.0) -> tuple[str, int]:
@@ -56,4 +56,4 @@ if __name__ == "__main__":
     host = sys.argv[1] if len(sys.argv) > 1 else "stun.l.google.com"
     port = int(sys.argv[2]) if len(sys.argv) > 2 else 19302
     ip, mapped_port = whats_my_address(host, port)
-    print(f"STUN-сервер видит тебя как {ip}:{mapped_port}")
+    print(f"STUN server sees you as {ip}:{mapped_port}")

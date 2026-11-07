@@ -1,4 +1,4 @@
-"""A single WebSocket session for one participant: from connection to disconnect."""
+"""One participant's ws session, from connect to disconnect."""
 
 import asyncio
 import time
@@ -27,7 +27,7 @@ from kolo.services.events import EventSink
 from kolo.services.sfu import sfu_token, uses_sfu
 from kolo.services.signaling.hub import SignalingHub
 
-# Custom closure codes (4000-4999 are for apps per RFC 6455)
+# app close codes (4000-4999)
 CLOSE_UNAUTHORIZED = 4401
 CLOSE_FORBIDDEN = 4403
 CLOSE_NOT_FOUND = 4404
@@ -87,14 +87,14 @@ class PeerSession:
         try:
             self._outbox.put_nowait(data)
         except asyncio.QueueFull: 
-            # client is reading too slow (or connection stalled), kill it to free memory
+            # client reads too slow, drop it
             self._spawn(self._close_ws(CLOSE_OVERLOADED, "slow_consumer"))
 
     def deliver(self, data: dict) -> None:
-        """Called by the Hub when a message arrives for us."""
+        """Hub calls this when a message comes for us."""
         kind = data.get("type")
         if kind == "_admitted" and self.state == "lobby" and not self._admitting:
-            # the flag guards against a double click: state stays "lobby" until _join() finishes
+            # double admit click: state is still lobby until _join() ends
             self._admitting = True
             self._spawn(self._join_safely())
         elif kind == "_denied" and self.state == "lobby":
@@ -112,7 +112,7 @@ class PeerSession:
         self.send({"type": "error", "code": code, "message": message})
 
     async def _writer(self) -> None:
-        # background worker just pulling from the queue and writing to the socket
+        # writes queued messages to the socket
         while True:
             data = await self._outbox.get()
             try:
@@ -127,7 +127,7 @@ class PeerSession:
             return
             
         try: 
-            # let the last messages (like the error itself) go out before snapping the wire
+            # let the last messages (like the error) go out first
             await asyncio.wait_for(self._outbox.join(), timeout=1.0)
         except TimeoutError:
             pass
@@ -153,7 +153,7 @@ class PeerSession:
             await self._hub.attach(self)
             log.info("peer_connected", room=self.room_code, peer=self.peer.id, role=self.peer.role)
             
-            # admitted guests skip the lobby, so a network blip doesn't make the host admit them twice
+            # admitted guests skip the lobby on reconnect
             needs_lobby = self.room.requires_admission(self.peer.role)
             if needs_lobby and not await self._presence.is_admitted(self.room_code, self.peer.id):
                 await self._enter_lobby()
@@ -166,7 +166,7 @@ class PeerSession:
         except SessionClosed as exc:
             await self._close_ws(exc.code, exc.reason)
         except Exception:
-            # usually the broker or presence store is down: tell the client to retry
+            # usually broker/presence is down, client should retry
             log.exception("peer_session_failed", room=self.room_code, peer=self.peer.id)
             await self._close_ws(CLOSE_OVERLOADED, REASON_UNAVAILABLE)
         finally:
@@ -187,7 +187,7 @@ class PeerSession:
         )
 
     async def _join_safely(self) -> None:
-        """Runs in its own task after the host's admit, so nothing above it would catch errors."""
+        """Runs as its own task after admit, so catch errors here."""
         try:
             await self._join()
         except SessionClosed as exc:
@@ -208,8 +208,8 @@ class PeerSession:
             await self._presence.remove_waiting(self.room_code, self.peer.id)
             
         if self.state == "closed":
-            # the client left while we were adding them: don't leave a ghost in the room.
-            # when replaced, this peer id already belongs to the new session
+            # client left while we were adding it: don't leave a ghost
+            # if replaced, the new session owns this peer id
             if not self._replaced:
                 await self._presence.remove(self.room_code, self.peer.id)
             return
@@ -235,7 +235,7 @@ class PeerSession:
         if self.peer.role is Role.HOST and self.room.lobby_enabled:
             welcome["lobby"] = [p.to_dict() for p in await self._presence.list_waiting(self.room_code)]
         if uses_sfu(self._settings, self.room) and self.room.requires_admission(self.peer.role):
-            # /join held this token back until now
+            # /join didn't give this token, give it now
             welcome["sfu_token"] = sfu_token(
                 self._settings, self.room, self.peer.id, self.peer.name, self.peer.role
             )
@@ -256,12 +256,12 @@ class PeerSession:
         state, self.state = self.state, "closed"
         
         if self._replaced: 
-            # new tab opened by the same user took over, don't emit 'left' event
+            # replaced by a new tab, no 'left' event
             return
             
         if state == "joined":
-            # best effort: a broker outage must not stop us from closing the socket and cleaning up.
-            # if this fails, the presence TTL drops the peer later
+            # best effort: broker down must not stop the cleanup.
+            # if it fails, presence ttl drops the peer later
             try:
                 await self._presence.remove(self.room_code, self.peer.id)
                 await self._hub.publish(
@@ -328,7 +328,7 @@ class PeerSession:
                 await self._presence.touch(self.room_code, me)
                 self.send({"type": "pong", "ts": int(time.time() * 1000)})
                 
-            # guests in the lobby can only ping: no offers, no chat
+            # lobby guests can only ping
             case _ if not self.is_joined:
                 self.error("not_joined", "Wait for the host to let you in")
                 

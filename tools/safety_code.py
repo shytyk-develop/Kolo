@@ -1,7 +1,6 @@
-"""Call "safety code" built from two DTLS fingerprints (like the safety number in Signal).
+"""Safety code from two DTLS fingerprints (like Signal's safety number).
 
-Both participants compute the same number. If the server swapped a fingerprint (a man-in-the-middle
-attack), the numbers on their screens won't match.
+Both sides get the same number. If the server swapped a fingerprint (MITM), the numbers won't match.
 """
 import hashlib
 
@@ -23,5 +22,5 @@ if __name__ == "__main__":
         "sha-256 1F:2E:3D:4C:5B:6A:79:88:97:A6:B5:C4:D3:E2:F1:00"
         ":11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:01"
     )
-    print("Аня видит: ", safety_code(a, b))
-    print("Боря видит:", safety_code(b, a))
+    print("Anya sees: ", safety_code(a, b))
+    print("Borya sees:", safety_code(b, a))

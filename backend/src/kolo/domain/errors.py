@@ -1,6 +1,6 @@
 # src/kolo/domain/errors.py
 
-"""Domain errors. They know nothing about HTTP — this is important."""
+"""Domain errors, no HTTP here."""
 
 class KoloError(Exception):
     code = "kolo_error"

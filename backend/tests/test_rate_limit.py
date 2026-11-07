@@ -20,7 +20,7 @@ def test_token_bucket_burst_then_refill():
     assert bucket.allow() is True
     assert bucket.allow() is False
 
-    clock.now = 100.0  # silent for a long time: the bucket refilled, but not beyond capacity
+    clock.now = 100.0  # long pause: refilled, but not over capacity
     assert [bucket.allow() for _ in range(4)] == [True, True, True, False]
 
 
@@ -30,4 +30,4 @@ def test_keyed_limiter_gives_each_key_its_own_bucket():
 
     assert limiter.allow("1.1.1.1") is True
     assert limiter.allow("1.1.1.1") is False
-    assert limiter.allow("2.2.2.2") is True  # someone else's spam doesn't block you
+    assert limiter.allow("2.2.2.2") is True  # other ip isn't affected

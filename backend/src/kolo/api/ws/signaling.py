@@ -19,7 +19,7 @@ from kolo.services.signaling.session import (
 
 router = APIRouter()
 
-# map our domain errors to custom websocket close codes
+# domain error -> ws close code
 CLOSE_CODES = {
     Unauthorized: CLOSE_UNAUTHORIZED, 
     RoomNotFound: CLOSE_NOT_FOUND,
@@ -34,8 +34,7 @@ async def signaling(
 ) -> None:
     c = websocket.app.state.container
     
-    # protect against Cross-Site WebSocket Hijacking (CSWSH).
-    # browsers always send the Origin header for WebSockets, so we verify it.
+    # other sites can't open our ws (CSWSH), browsers always send Origin
     origin = websocket.headers.get("origin")
     if origin is not None and origin not in c.settings.cors_origins:
         await websocket.close(code=CLOSE_FORBIDDEN)
@@ -44,7 +43,7 @@ async def signaling(
     await websocket.accept()
     
     try:
-        # decode the JWT to figure out who is knocking
+        # who is this
         claims = decode_room_token(c.settings, token)
         room = await c.rooms.get_room(code)
         
@@ -52,7 +51,7 @@ async def signaling(
             raise Unauthorized("Token was issued for a different room")
             
     except KoloError as exc:
-        # bounce them if the token is garbage, room is dead, etc.
+        # bad token, no room, expired room...
         await websocket.close(
             code=CLOSE_CODES.get(type(exc), CLOSE_FORBIDDEN), 
             reason=exc.code
@@ -62,12 +61,12 @@ async def signaling(
         if not is_dependency_error(exc):
             raise
 
-        # couldn't load the room: Redis or the database is down, the client should retry later
+        # redis or db is down, client should retry
         log.warning("dependency_unavailable", path=websocket.url.path, error=repr(exc))
         await websocket.close(code=CLOSE_OVERLOADED, reason=REASON_UNAVAILABLE)
         return
         
-    # bundle everything up and hand off control to the session manager
+    # hand off to the session
     session = PeerSession(
         websocket, 
         room, 
@@ -78,5 +77,5 @@ async def signaling(
         events=c.events,
     )
     
-    # this will block and handle the websocket lifecycle until they disconnect
+    # runs until disconnect
     await session.run()

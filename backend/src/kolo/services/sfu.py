@@ -1,6 +1,6 @@
 # src/kolo/services/sfu.py
 
-"""Token for connecting to the LiveKit SFU. The same kind of JWT, but signed with LiveKit's secret."""
+"""LiveKit token: same jwt idea, signed with the livekit secret."""
 from datetime import timedelta
 
 from livekit import api
@@ -19,15 +19,14 @@ def sfu_token(settings: Settings, room: Room, participant_id: str, name: str, ro
         room=room.code,
         can_publish=True,
         can_subscribe=True,
-        room_admin=role is Role.HOST,  # the host can mute other participants
+        room_admin=role is Role.HOST,  # host can mute others
     )
     return (
         api.AccessToken(settings.livekit_api_key, settings.livekit_api_secret.get_secret_value())
         .with_identity(participant_id)
         .with_name(name)
         .with_grants(grants)
-        # applied when the first token creates the room: a client can enter LiveKit without
-        # opening our socket, so PeerSession's capacity check can't stop it
+        # room limit inside livekit, people can join it without our ws
         .with_room_config(api.RoomConfiguration(max_participants=room.max_participants))
         .with_ttl(timedelta(seconds=settings.jwt_ttl_seconds))
         .to_jwt()

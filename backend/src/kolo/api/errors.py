@@ -18,9 +18,9 @@ async def kolo_error_handler(request: Request, exc: KoloError) -> JSONResponse:
 
 async def dependency_error_handler(request: Request, exc: Exception) -> JSONResponse:
     if not is_dependency_error(exc):
-        raise exc  # a real bug: let it become a regular 500 with a traceback in the logs
+        raise exc  # real bug -> normal 500 with traceback
 
-    # exception details stay in the logs, they can contain hosts and connection strings
+    # details only in logs, they can have hosts and passwords
     log.warning("dependency_unavailable", path=request.url.path, error=repr(exc))
     return JSONResponse(
         status_code=503,

@@ -1,6 +1,6 @@
 # tests/test_rooms_api.py
 
-"""HTTP API: creating rooms, joining them, and every way that can go wrong."""
+"""HTTP API: create, join and errors."""
 from datetime import UTC, datetime, timedelta
 
 import jwt
@@ -58,9 +58,9 @@ def test_create_room_rejects_bad_input(client, body):
 def test_host_secret_decides_the_role(client):
     room = create_room(client)
 
-    host = join(client, room["code"], "Аня", room["host_secret"])
-    guest = join(client, room["code"], "Боря")
-    impostor = join(client, room["code"], "Вова", "a-guessed-secret")
+    host = join(client, room["code"], "Anya", room["host_secret"])
+    guest = join(client, room["code"], "Borya")
+    impostor = join(client, room["code"], "Vova", "a-guessed-secret")
 
     assert (host["role"], guest["role"], impostor["role"]) == ("host", "guest", "guest")
     assert host["ws_path"] == f"/ws/rooms/{room['code']}"
@@ -71,22 +71,22 @@ def test_join_accepts_codes_typed_by_humans(client):
     code = create_room(client)["code"]
     typed = code.replace("-", " ").upper()  # "ABC DEFG HIJ"
 
-    assert join(client, typed, "Аня")["ws_path"] == f"/ws/rooms/{code}"
+    assert join(client, typed, "Anya")["ws_path"] == f"/ws/rooms/{code}"
 
 
 @pytest.mark.parametrize("code", ["zzz-zzzz-zzz", "not-a-code", "x" * 30])
 def test_unknown_room_is_404(client, code):
-    response = client.post(f"/api/v1/rooms/{code}/join", json={"display_name": "Аня"})
+    response = client.post(f"/api/v1/rooms/{code}/join", json={"display_name": "Anya"})
 
     assert response.status_code == 404
     assert error_code(response) == "room_not_found"
 
 
 def test_expired_room_is_410(client, settings):
-    settings.room_ttl_hours = 0  # the room expires the moment it's created
+    settings.room_ttl_hours = 0  # room expires right away
     code = create_room(client)["code"]
 
-    response = client.post(f"/api/v1/rooms/{code}/join", json={"display_name": "Аня"})
+    response = client.post(f"/api/v1/rooms/{code}/join", json={"display_name": "Anya"})
 
     assert response.status_code == 410
     assert error_code(response) == "room_expired"
@@ -95,12 +95,12 @@ def test_expired_room_is_410(client, settings):
 def test_display_name_is_cleaned(client, settings):
     code = create_room(client)["code"]
 
-    ticket = join(client, code, "  Аня \n  Петрова ")
+    ticket = join(client, code, "  Anya \n  Petrova ")
 
-    assert name_in_token(settings, ticket) == "Аня Петрова"
+    assert name_in_token(settings, ticket) == "Anya Petrova"
 
 
-@pytest.mark.parametrize("name", ["", "   ", "Аня\x00", "x" * 41])
+@pytest.mark.parametrize("name", ["", "   ", "Anya\x00", "x" * 41])
 def test_bad_display_names_are_rejected(client, name):
     code = create_room(client)["code"]
     assert client.post(f"/api/v1/rooms/{code}/join", json={"display_name": name}).status_code == 422
@@ -119,7 +119,7 @@ def test_room_creation_is_rate_limited(settings):
 
 
 def test_forged_forwarded_for_does_not_bypass_the_limit(settings):
-    # a client can put anything into this header: a fresh "IP" per request used to get a fresh bucket
+    # client can fake this header, a new ip per request used to skip the limit
     settings.rooms_per_minute_per_ip = 2
 
     with TestClient(create_app(settings)) as client:
@@ -132,11 +132,10 @@ def test_forged_forwarded_for_does_not_bypass_the_limit(settings):
 
 
 def test_behind_a_trusted_proxy_each_client_has_its_own_limit(settings):
-    # in production uvicorn --proxy-headers --forwarded-allow-ips=<proxy> does this rewrite:
-    # it takes the address the proxy appended, not the one the client wrote
+    # what uvicorn --forwarded-allow-ips=<proxy> does in prod
     settings.rooms_per_minute_per_ip = 1
-    # "testclient" is the peer address TestClient uses, so here it plays the proxy.
-    # not "*": trusting every hop walks the chain back to the address the client forged
+    # "testclient" = TestClient's address, plays the proxy here.
+    # not "*", that would trust the faked part too
     app = ProxyHeadersMiddleware(create_app(settings), trusted_hosts="testclient")
 
     def create(chain: str) -> int:
@@ -145,8 +144,8 @@ def test_behind_a_trusted_proxy_each_client_has_its_own_limit(settings):
     with TestClient(app) as client:
         assert create("198.51.100.1") == 201
         assert create("198.51.100.1") == 429
-        assert create("198.51.100.2") == 201  # another real client is not affected
-        # the forged left part is ignored: the proxy appended the real address on the right
+        assert create("198.51.100.2") == 201  # other client not affected
+        # faked left part is ignored, the proxy added the real ip on the right
         assert create("203.0.113.77, 198.51.100.1") == 429
 
 

@@ -1,6 +1,6 @@
 # src/kolo/domain/room_codes.py
 
-"""Google Meet style room codes: abc-defg-hij."""
+"""Meet style room codes: abc-defg-hij."""
 import re
 import secrets
 import string

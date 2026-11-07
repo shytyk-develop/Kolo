@@ -1,6 +1,6 @@
 # src/kolo/core/security.py
 
-"""Access tokens, secret hashing, and timing-safe comparisons."""
+"""Tokens, secret hashing, safe compare."""
 import hashlib
 import hmac
 import secrets
@@ -31,7 +31,7 @@ def new_participant_id() -> str:
     return "p_" + secrets.token_hex(8)
 
 def hash_secret(secret: str) -> str:
-    # the secret is long and random enough, so a simple SHA-256 is fine here
+    # secret is long and random, plain sha256 is enough
     return hashlib.sha256(secret.encode()).hexdigest()
 
 def verify_secret(secret: str, expected_hash: str) -> bool:
@@ -60,7 +60,7 @@ def decode_room_token(settings: Settings, token: str) -> RoomTokenClaims:
         payload = jwt.decode(
             token,
             settings.jwt_secret.get_secret_value(),
-            algorithms=[JWT_ALGORITHM],  # ALWAYS hardcode this to prevent alg=none attacks
+            algorithms=[JWT_ALGORITHM],  # fixed alg, blocks alg=none
             options={"require": ["exp", "sub", "room"]},
         )
     except jwt.PyJWTError as exc:

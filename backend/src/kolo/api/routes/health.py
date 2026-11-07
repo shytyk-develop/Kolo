@@ -9,12 +9,12 @@ router = APIRouter(tags=["health"])
 
 @router.get("/health")
 async def liveness() -> dict:
-    """The process is alive. Docker will restart the container if there is no response here."""
+    """Liveness: the process is alive."""
     return {"status": "ok"}
 
 @router.get("/health/ready")
 async def readiness(c: ContainerDep) -> JSONResponse:
-    """Whether we can take traffic: are the database and Redis reachable."""
+    """Readiness: db and redis are reachable."""
     results: dict[str, str] = {}
     for name, check in c.checks.items():
         try:

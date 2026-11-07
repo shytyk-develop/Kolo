@@ -1,4 +1,4 @@
-# src/kolo/infra/presence.py (Part 1: Protocol and in-memory implementation)
+# src/kolo/infra/presence.py
 
 import json
 import time
@@ -11,7 +11,7 @@ from kolo.domain.models import Peer
 KEY_TTL_SECONDS = 24 * 60 * 60
 
 class PresenceStore(Protocol):
-    # interface defining how we track who is in which room
+    # who is in which room
     async def add(self, room: str, peer: Peer) -> int: ...
     async def remove(self, room: str, peer_id: str) -> None: ...
     async def touch(self, room: str, peer_id: str) -> None: ...
@@ -27,7 +27,7 @@ class PresenceStore(Protocol):
 
 
 class MemoryPresence:
-    """Fake in-memory presence store. Good for local testing without Redis."""
+    """In-memory presence, for dev and tests."""
     
     def __init__(self, ttl_seconds: int = 60, clock=time.time) -> None:
         self._ttl = ttl_seconds
@@ -37,7 +37,7 @@ class MemoryPresence:
         self._admitted: dict[str, set[str]] = {}
 
     def _alive(self, room: str) -> dict[str, tuple[float, Peer]]:
-        # helper to sweep dead peers who haven't pinged us recently
+        # drop peers that stopped pinging
         peers = self._peers.setdefault(room, {})
         deadline = self._clock() - self._ttl
         
@@ -55,7 +55,7 @@ class MemoryPresence:
         self._peers.get(room, {}).pop(peer_id, None)
 
     async def touch(self, room: str, peer_id: str) -> None:
-        # heartbeat: keep the peer alive so they don't get swept away
+        # ping keeps the peer alive
         peers = self._peers.get(room, {})
         if peer_id in peers:
             peers[peer_id] = (self._clock(), peers[peer_id][1])
@@ -66,7 +66,7 @@ class MemoryPresence:
     async def count(self, room: str) -> int:
         return len(self._alive(room))
 
-    # lobby stuff will be used in chapter 11, but setting up the stubs now
+    # lobby
     async def add_waiting(self, room: str, peer: Peer) -> None:
         self._lobby.setdefault(room, {})[peer.id] = peer
 
@@ -84,7 +84,7 @@ class MemoryPresence:
 
 
 class RedisPresence:
-    """Sorted set of peers scored by last ping time, so dropping silent peers is one range query."""
+    """Redis presence: sorted set scored by last ping, cleanup is one range query."""
 
     def __init__(self, redis: Redis, ttl_seconds: int = 60, clock=time.time) -> None:
         self._r = redis
@@ -109,7 +109,7 @@ class RedisPresence:
         peers_key, info_key = self._keys(room)
         await self._cleanup(room)
 
-        # MULTI ... EXEC: nobody can squeeze in between ZADD and ZCARD
+        # MULTI/EXEC so nobody gets between ZADD and ZCARD
         async with self._r.pipeline(transaction=True) as pipe:
             pipe.zadd(peers_key, {peer.id: self._clock()})
             pipe.hset(info_key, peer.id, json.dumps(peer.to_dict()))
@@ -128,7 +128,7 @@ class RedisPresence:
 
     async def touch(self, room: str, peer_id: str) -> None:
         peers_key, _ = self._keys(room)
-        # xx: only update existing members, a late ping must not resurrect a removed peer
+        # xx: a late ping must not bring back a removed peer
         await self._r.zadd(peers_key, {peer_id: self._clock()}, xx=True)
 
     async def members(self, room: str) -> list[Peer]:

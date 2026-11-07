@@ -11,7 +11,7 @@ from kolo.services.events import RecordingEventSink
 
 @pytest.fixture
 def settings() -> Settings:
-    # _env_file=None: tests must not depend on the developer's local .env (real Postgres and Redis)
+    # don't read the local .env
     return Settings(
         _env_file=None,
         env="test",
@@ -34,7 +34,7 @@ def client(settings, events):
     async def factory(s):
         return await build_container(s, events=events)
 
-    # "with" runs lifespan, which builds the container and keeps one event loop for all sockets
+    # "with" runs lifespan, one loop for all sockets
     with TestClient(create_app(settings, container_factory=factory)) as test_client:
         yield test_client
 

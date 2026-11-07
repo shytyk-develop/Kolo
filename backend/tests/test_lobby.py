@@ -1,6 +1,6 @@
 # tests/test_lobby.py
 
-"""Waiting room: guests see nothing and can do nothing until the host lets them in."""
+"""Lobby: guests see and do nothing until the host lets them in."""
 import asyncio
 import threading
 from collections.abc import Iterator
@@ -18,7 +18,7 @@ from kolo.services.signaling.session import CLOSE_CONFLICT, CLOSE_FORBIDDEN, CLO
 
 
 class ControlledPresence(MemoryPresence):
-    """Lets a test hold the admission halfway through, or make it fail."""
+    """Can pause or break the admission."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -44,7 +44,7 @@ def presence() -> ControlledPresence:
 def client(settings: Settings, presence: ControlledPresence) -> Iterator[TestClient]:
     async def factory(app_settings: Settings):
         container = await build_container(app_settings)
-        container.presence = presence  # sessions use this one, /join keeps its own empty store
+        container.presence = presence  # sessions use this one, /join has its own empty store
         return container
 
     with TestClient(create_app(settings, container_factory=factory)) as test_client:
@@ -79,7 +79,7 @@ def assert_closed(ws, code: int) -> None:
 
 
 def receive_until_pong(ws) -> list[dict]:
-    """Everything that arrived before this ping, so a test can also assert what did NOT arrive."""
+    """Everything that came before this ping (to check what did NOT come)."""
     ws.send_json({"type": "ping"})
     messages = []
     while (message := ws.receive_json())["type"] != "pong":
@@ -89,7 +89,7 @@ def receive_until_pong(ws) -> list[dict]:
 
 def test_lobby_admit_flow(client: TestClient) -> None:
     room = lobby_room(client)
-    host, guest = join(client, room, "Аня", host=True), join(client, room, "Боря")
+    host, guest = join(client, room, "Anya", host=True), join(client, room, "Borya")
 
     with connect(client, host) as ws_host:
         welcome = ws_host.receive_json()
@@ -98,32 +98,32 @@ def test_lobby_admit_flow(client: TestClient) -> None:
 
         with connect(client, guest) as ws_guest:
             assert ws_guest.receive_json() == {"type": "lobby", "status": "waiting"}
-            assert ws_host.receive_json() == {"type": "lobby-request", "peer": peer_of(guest, "Боря")}
+            assert ws_host.receive_json() == {"type": "lobby-request", "peer": peer_of(guest, "Borya")}
 
-            # The room's chat must not reach the waiting guest
-            ws_host.send_json({"type": "chat", "text": "только для своих"})
-            assert ws_host.receive_json()["text"] == "только для своих"
+            # chat must not reach the waiting guest
+            ws_host.send_json({"type": "chat", "text": "members only"})
+            assert ws_host.receive_json()["text"] == "members only"
 
-            # And the guest can't do anything in the room yet
+            # guest can't do anything yet
             ws_guest.send_json({"type": "offer", "to": host["participant_id"], "sdp": "v=0"})
             assert ws_guest.receive_json()["code"] == "not_joined"
-            ws_guest.send_json({"type": "chat", "text": "можно войти?"})
+            ws_guest.send_json({"type": "chat", "text": "can I come in?"})
             assert ws_guest.receive_json()["code"] == "not_joined"
 
             ws_host.send_json({"type": "admit", "peer_id": guest["participant_id"]})
 
-            # The order of these two is not guaranteed once they travel through Redis
+            # order isn't fixed with redis
             messages = [ws_host.receive_json(), ws_host.receive_json()]
             assert {"type": "lobby-left", "peer_id": guest["participant_id"]} in messages
-            assert {"type": "peer-joined", "peer": peer_of(guest, "Боря")} in messages
+            assert {"type": "peer-joined", "peer": peer_of(guest, "Borya")} in messages
 
-            # The very next message is the welcome: nothing leaked while waiting
+            # next message is welcome, nothing leaked
             welcome = ws_guest.receive_json()
             assert welcome["type"] == "welcome"
-            assert welcome["peers"] == [peer_of(host, "Аня")]
-            assert "lobby" not in welcome  # the waiting list is for hosts only
+            assert welcome["peers"] == [peer_of(host, "Anya")]
+            assert "lobby" not in welcome  # lobby list is for hosts
 
-            # Now the guest is a full participant
+            # now a normal participant
             ws_guest.send_json({"type": "offer", "to": host["participant_id"], "sdp": "v=0"})
             assert ws_host.receive_json() == {
                 "type": "offer",
@@ -134,7 +134,7 @@ def test_lobby_admit_flow(client: TestClient) -> None:
 
 def test_lobby_deny(client: TestClient) -> None:
     room = lobby_room(client)
-    host, guest = join(client, room, "Аня", host=True), join(client, room, "Боря")
+    host, guest = join(client, room, "Anya", host=True), join(client, room, "Borya")
 
     with connect(client, host) as ws_host:
         ws_host.receive_json()
@@ -149,17 +149,17 @@ def test_lobby_deny(client: TestClient) -> None:
             assert_closed(ws_guest, CLOSE_FORBIDDEN)
             assert ws_host.receive_json() == {"type": "lobby-left", "peer_id": guest["participant_id"]}
 
-        # A second host device doesn't see the denied guest in the waiting list
-        with connect(client, join(client, room, "Аня-2", host=True)) as ws_other_host:
+        # other host device doesn't see the denied guest
+        with connect(client, join(client, room, "Anya-2", host=True)) as ws_other_host:
             assert ws_other_host.receive_json()["lobby"] == []
 
 
 def test_guests_cannot_admit(client: TestClient) -> None:
     room = lobby_room(client)
     host, friend, stranger = (
-        join(client, room, "Аня", host=True),
-        join(client, room, "Боря"),
-        join(client, room, "Незнакомец"),
+        join(client, room, "Anya", host=True),
+        join(client, room, "Borya"),
+        join(client, room, "Stranger"),
     )
 
     with connect(client, host) as ws_host, connect(client, friend) as ws_friend:
@@ -172,11 +172,11 @@ def test_guests_cannot_admit(client: TestClient) -> None:
         with connect(client, stranger) as ws_stranger:
             assert ws_stranger.receive_json()["type"] == "lobby"
 
-            # A waiting guest can't let themselves in
+            # waiting guest can't admit themselves
             ws_stranger.send_json({"type": "admit", "peer_id": stranger["participant_id"]})
             assert ws_stranger.receive_json()["code"] == "not_joined"
 
-            # A joined guest can't let anyone in
+            # joined guest can't admit anyone
             ws_friend.send_json({"type": "admit", "peer_id": stranger["participant_id"]})
             assert ws_friend.receive_json()["code"] == "forbidden"
 
@@ -186,7 +186,7 @@ def test_guests_cannot_admit(client: TestClient) -> None:
 
 def test_admitted_guest_skips_lobby_after_reconnect(client: TestClient) -> None:
     room = lobby_room(client)
-    host, guest = join(client, room, "Аня", host=True), join(client, room, "Боря")
+    host, guest = join(client, room, "Anya", host=True), join(client, room, "Borya")
 
     with connect(client, host) as ws_host:
         ws_host.receive_json()
@@ -202,20 +202,20 @@ def test_admitted_guest_skips_lobby_after_reconnect(client: TestClient) -> None:
 
 def test_host_who_comes_later_sees_waiting_guests(client: TestClient) -> None:
     room = lobby_room(client)
-    host, guest = join(client, room, "Аня", host=True), join(client, room, "Боря")
+    host, guest = join(client, room, "Anya", host=True), join(client, room, "Borya")
 
     with connect(client, guest) as ws_guest:
         ws_guest.receive_json()
 
         with connect(client, host) as ws_host:
             welcome = ws_host.receive_json()
-            assert welcome["peers"] == []  # the waiting guest is not in the room yet
-            assert welcome["lobby"] == [peer_of(guest, "Боря")]
+            assert welcome["peers"] == []  # not in the room yet
+            assert welcome["lobby"] == [peer_of(guest, "Borya")]
 
 
 def test_guest_leaving_the_lobby_notifies_host(client: TestClient) -> None:
     room = lobby_room(client)
-    host, guest = join(client, room, "Аня", host=True), join(client, room, "Боря")
+    host, guest = join(client, room, "Anya", host=True), join(client, room, "Borya")
 
     with connect(client, host) as ws_host:
         ws_host.receive_json()
@@ -229,13 +229,13 @@ def test_guest_leaving_the_lobby_notifies_host(client: TestClient) -> None:
 
 def test_double_admit_joins_once(client: TestClient, presence: ControlledPresence) -> None:
     room = lobby_room(client)
-    host, guest = join(client, room, "Аня", host=True), join(client, room, "Боря")
+    host, guest = join(client, room, "Anya", host=True), join(client, room, "Borya")
 
     with connect(client, host) as ws_host, connect(client, guest) as ws_guest:
         ws_host.receive_json()
         ws_guest.receive_json()
 
-        # Keep the first admission in progress while the second one arrives
+        # first admit still running when the second comes
         presence.add_delay = 0.1
         ws_host.send_json({"type": "admit", "peer_id": guest["participant_id"]})
         ws_host.send_json({"type": "admit", "peer_id": guest["participant_id"]})
@@ -254,7 +254,7 @@ def test_leaving_during_admission_leaves_no_ghost(
     client: TestClient, presence: ControlledPresence
 ) -> None:
     room = lobby_room(client)
-    host, guest = join(client, room, "Аня", host=True), join(client, room, "Боря")
+    host, guest = join(client, room, "Anya", host=True), join(client, room, "Borya")
 
     with connect(client, host) as ws_host:
         ws_host.receive_json()
@@ -269,7 +269,7 @@ def test_leaving_during_admission_leaves_no_ghost(
             assert presence.add_started.wait(timeout=5)
             ws_guest.close()
 
-        client.portal.call(asyncio.sleep, 0.2)  # let the admission finish
+        client.portal.call(asyncio.sleep, 0.2)  # let the admit finish
         assert client.portal.call(presence.count, room["code"]) == 1  # only the host
 
 
@@ -277,7 +277,7 @@ def test_admission_failure_closes_instead_of_hanging(
     client: TestClient, presence: ControlledPresence
 ) -> None:
     room = lobby_room(client)
-    host, guest = join(client, room, "Аня", host=True), join(client, room, "Боря")
+    host, guest = join(client, room, "Anya", host=True), join(client, room, "Borya")
 
     with connect(client, host) as ws_host, connect(client, guest) as ws_guest:
         ws_host.receive_json()
@@ -292,9 +292,9 @@ def test_admission_failure_closes_instead_of_hanging(
 def test_admitting_into_a_full_room_is_rejected(client: TestClient) -> None:
     room = lobby_room(client, max_participants=2)
     host, first, second = (
-        join(client, room, "Аня", host=True),
-        join(client, room, "Боря"),
-        join(client, room, "Вера"),
+        join(client, room, "Anya", host=True),
+        join(client, room, "Borya"),
+        join(client, room, "Vera"),
     )
 
     with connect(client, host) as ws_host, connect(client, first) as ws_first:

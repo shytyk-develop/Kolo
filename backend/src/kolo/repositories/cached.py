@@ -1,6 +1,6 @@
 # src/kolo/repositories/cached.py
 
-"""Cache-aside: check the cache first, on a miss read the DB and store the result in the cache."""
+"""Cache-aside: cache first, on miss read the db and cache it."""
 import json
 from dataclasses import asdict
 from datetime import datetime
@@ -47,7 +47,7 @@ class CachedRoomRepository:
         return room
 
     async def delete_expired(self, older_than: datetime) -> int:
-        # room_cleaner looks this method up on the outermost repo, so it has to be forwarded.
-        # stale cache entries die on their own TTL, and expired rooms are rejected by RoomService
+        # room_cleaner calls this on the outer repo, so pass it through.
+        # stale cache dies by ttl, expired rooms are rejected by RoomService anyway
         delete_expired = getattr(self._inner, "delete_expired", None)
         return await delete_expired(older_than) if delete_expired else 0

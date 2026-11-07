@@ -1,6 +1,6 @@
 # src/kolo/core/config.py
 
-"""All application settings in one place. Values are taken from KOLO_* environment variables."""
+"""App settings, read from KOLO_* env vars."""
 from functools import lru_cache
 from typing import Literal
 
@@ -10,7 +10,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 DEFAULT_JWT_SECRET = "dev-only-secret-change-me-in-production-0123456789"
 DEFAULT_LIVEKIT_SECRET = "secret"
 
-# Must never reach production: the defaults above, what .env.example suggests, and empty values
+# secrets everyone knows (defaults, .env.example, empty), never in prod
 PUBLICLY_KNOWN_SECRETS = {
     DEFAULT_JWT_SECRET,
     DEFAULT_LIVEKIT_SECRET,
@@ -25,15 +25,15 @@ def _is_known(secret: SecretStr | None) -> bool:
 
 
 class Settings(BaseSettings):
-    # hide_input_in_errors: by default a validation error prints the raw values, secrets included
+    # don't print secrets in validation errors
     model_config = SettingsConfigDict(
         env_file=".env", env_prefix="KOLO_", extra="ignore", hide_input_in_errors=True
     )
 
     env: Literal["dev", "test", "prod"] = "dev"
-    public_url: str = "http://localhost:3000"  # frontend address, for invitation links
+    public_url: str = "http://localhost:3000"  # frontend url
 
-    # Storages. "memory://" = everything in process memory (useful for early stages and tests)
+    # storage, memory:// = all in process memory
     database_url: str = "memory://"
     redis_url: str | None = None
 
@@ -57,8 +57,8 @@ class Settings(BaseSettings):
     turn_secret: SecretStr | None = None
     turn_ttl_seconds: int = 60 * 60
 
-    # SFU (LiveKit). Without livekit_url every room stays peer-to-peer.
-    # devkey/secret are the values built into "livekit-server --dev", set your own in production
+    # sfu (livekit), no livekit_url = every room is p2p
+    # devkey/secret = livekit --dev defaults
     p2p_max_participants: int = 4
     livekit_url: str | None = None
     livekit_api_key: str = "devkey"

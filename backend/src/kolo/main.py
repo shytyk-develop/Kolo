@@ -18,11 +18,11 @@ from kolo.infra.errors import DEPENDENCY_ERROR_TYPES
 
 
 async def room_cleaner(container):
-    """Background worker: sweeps up rooms that expired over a week ago."""
+    """Deletes rooms that expired over a week ago."""
     while True:
         try:
             older_than = datetime.now(UTC) - timedelta(days=7)
-            # check if the repo actually supports deletion (our dummy in-memory one doesn't)
+            # memory repo has no delete_expired
             if hasattr(container.rooms._repo, 'delete_expired'):
                 deleted = await container.rooms._repo.delete_expired(older_than)
                 if deleted > 0:
@@ -30,7 +30,7 @@ async def room_cleaner(container):
         except Exception as e:
             print(f"Room cleanup failed: {e}")
         
-        # run this check once an hour (3600s)
+        # once an hour
         await asyncio.sleep(3600)
 
 def create_app(settings: Settings | None = None, *, container_factory=None) -> FastAPI:
@@ -43,13 +43,13 @@ def create_app(settings: Settings | None = None, *, container_factory=None) -> F
         container = await factory(settings)
         app.state.container = container
         
-        # kick off the background cleanup worker
+        # start the cleanup loop
         cleaner_task = asyncio.create_task(room_cleaner(container))
         
         try:
             yield
         finally:
-            # kill the infinite loop and shut down db connections cleanly
+            # stop the loop, close db
             cleaner_task.cancel()
             await container.aclose()
 

@@ -1,7 +1,7 @@
 name: CI
 on: [push, pull_request]
 
-# the jobs only read the code: a compromised step can't push or touch releases
+# read-only token for the jobs
 permissions:
   contents: read
 
@@ -14,9 +14,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"  # same as .python-version and Dockerfile
       - run: uv sync --frozen
       - run: uv run ruff check src tests
       - run: uv run pytest -q --cov=kolo --cov-report=term
 
-  # The frontend job from the book goes here once frontend/ has a package.json (chapter 16):
-  # without it "npm ci" fails and the whole CI run turns red.
+  # todo: frontend job (npm ci) after ch16, frontend/ is empty for now

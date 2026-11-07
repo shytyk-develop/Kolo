@@ -1,6 +1,6 @@
 # src/kolo/services/rooms.py
 
-"""Business logic for rooms. No HTTP. Just the rules."""
+"""Room business logic, no HTTP."""
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
@@ -20,11 +20,11 @@ def utcnow() -> datetime:
 @dataclass(frozen=True)
 class CreatedRoom:
     room: Room
-    host_secret: str  # shown only once, database stores only the hash
+    host_secret: str  # shown once, db keeps only the hash
 
 @dataclass(frozen=True)
 class JoinTicket:
-    # read-only ticket holding everything a user needs to join the call
+    # everything a user needs to join
     room: Room
     participant_id: str
     role: Role
@@ -60,7 +60,7 @@ class RoomService:
         host_secret = new_secret()
         now = self._clock()
         
-        for _ in range(5):  # code collision is almost impossible, but we handle it
+        for _ in range(5):  # collision is almost impossible, retry anyway
             code = generate_room_code()
             room = Room(
                 code=code,
@@ -101,19 +101,18 @@ class RoomService:
     async def join(self, raw_code: str, display_name: str, host_secret: str | None) -> JoinTicket:
         room = await self.get_room(raw_code)
 
-        # fast pre-check so we don't hand out tokens for a full room.
-        # the authoritative check happens in PeerSession._join (two clients can race past this one)
+        # quick check, the real one is in PeerSession._join (two clients can race here)
         if await self.participants_count(room) >= room.max_participants:
             raise RoomFull()
 
-        # default to guest, but upgrade to host if the provided secret matches the hash
+        # guest unless the host secret matches
         role = Role.GUEST
         if host_secret and verify_secret(host_secret, room.host_secret_hash):
             role = Role.HOST
             
         participant_id = new_participant_id()
         
-        # bake the user info into a JWT token
+        # user info goes into the jwt
         token = create_room_token(
             self._settings, 
             room=room.code, 
@@ -127,6 +126,6 @@ class RoomService:
             participant_id=participant_id, 
             role=role, 
             token=token,
-            # STUN and TURN servers, so WebRTC knows how to connect
+            # stun/turn for webrtc
             ice_servers=ice_servers_for(self._settings, participant_id),
         )

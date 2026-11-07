@@ -1,0 +1,17 @@
+# 3 api replicas behind caddy
+# run: docker compose -f infra/docker-compose.yml -f infra/docker-compose.scale.yml up --build
+services:
+  api:
+    ports: !reset []  # only caddy is open
+    deploy:
+      replicas: 3
+    environment:
+      # ok only because api isn't exposed
+      FORWARDED_ALLOW_IPS: "*"
+
+  caddy:
+    image: caddy:2-alpine
+    ports: ["8000:80"]
+    volumes: [./caddy/Caddyfile.scale:/etc/caddy/Caddyfile:ro]
+    depends_on:
+      api: {condition: service_healthy}

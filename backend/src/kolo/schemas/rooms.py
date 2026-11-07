@@ -36,10 +36,10 @@ class JoinRequest(BaseModel):
     @field_validator("display_name")
     @classmethod
     def clean_name(cls, value: str) -> str:
-        # strip newlines and collapse multiple spaces into one
+        # collapse spaces and newlines
         cleaned = " ".join(value.split())
         
-        # make sure we aren't getting empty strings or weird invisible characters
+        # no empty names or invisible chars
         if not cleaned or any(not ch.isprintable() for ch in cleaned):
             raise ValueError("Name contains invalid characters")
             
@@ -53,10 +53,10 @@ class IceServer(BaseModel):
 class JoinResponse(BaseModel):
     token: str
     participant_id: str
-    role: Role  # role determines if they are host or guest
+    role: Role  # host or guest
     ws_path: str
     expires_in: int
-    ice_servers: list[IceServer]  # need this to pass TURN/STUN servers to the frontend for WebRTC
+    ice_servers: list[IceServer]  # stun/turn for webrtc
     media_mode: Literal["p2p", "sfu"] = "p2p"
     sfu_url: str | None = None
     sfu_token: str | None = None

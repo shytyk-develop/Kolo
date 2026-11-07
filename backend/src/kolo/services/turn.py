@@ -1,11 +1,10 @@
 # src/kolo/services/turn.py
 
-"""
-Temporary TURN logins, the "TURN REST API" scheme (draft-uberti-behave-turn-rest).
-coturn with the use-auth-secret option checks:
-    username   = "<unix expiry time>:<any id>"
+"""Temporary TURN logins (TURN REST API).
+
+coturn with use-auth-secret checks:
+    username   = "<expiry unix time>:<id>"
     credential = base64(HMAC-SHA1(secret, username))
-Only our backend and coturn know the secret. A login expires on its own, no passwords are stored.
 """
 import base64
 import hashlib
@@ -20,7 +19,7 @@ def turn_credentials(
 ) -> tuple[str, str]:
     expires_at = int((now if now is not None else time.time()) + ttl_seconds)
     username = f"{expires_at}:{user_id}"
-    # SHA-1 collisions don't break HMAC, and this is the algorithm coturn requires
+    # sha1 is fine for hmac, and coturn needs it
     digest = hmac.new(secret.encode(), username.encode(), hashlib.sha1).digest()
     return username, base64.b64encode(digest).decode()
 

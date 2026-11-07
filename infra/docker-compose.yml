@@ -1,0 +1,62 @@
+# run: docker compose -f infra/docker-compose.yml up --build
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: kolo
+      POSTGRES_PASSWORD: kolo
+      POSTGRES_DB: kolo
+    volumes: [pgdata:/var/lib/postgresql/data]
+    # only localhost, the password is "kolo"
+    ports: ["127.0.0.1:5432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kolo"]
+      interval: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]  # cache and presence, no disk
+    ports: ["127.0.0.1:6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+
+  migrate:
+    build: ../backend
+    command: ["alembic", "upgrade", "head"]
+    environment: &api-env
+      KOLO_ENV: ${KOLO_ENV:-dev}
+      KOLO_DATABASE_URL: postgresql+asyncpg://kolo:kolo@postgres:5432/kolo
+      KOLO_REDIS_URL: redis://redis:6379/0
+      KOLO_JWT_SECRET: ${KOLO_JWT_SECRET:?set KOLO_JWT_SECRET in infra/.env}
+      KOLO_TURN_SECRET: ${KOLO_TURN_SECRET:?set KOLO_TURN_SECRET in infra/.env}
+      KOLO_TURN_URLS: '["turn:${PUBLIC_HOST:-localhost}:3478?transport=udp","turn:${PUBLIC_HOST:-localhost}:3478?transport=tcp"]'
+      KOLO_CORS_ORIGINS: '["http://localhost:3000"]'
+      KOLO_PUBLIC_URL: ${KOLO_PUBLIC_URL:-http://localhost:3000}
+      # join_url uses frontend_url
+      KOLO_FRONTEND_URL: ${KOLO_PUBLIC_URL:-http://localhost:3000}
+    depends_on:
+      postgres: {condition: service_healthy}
+
+  api:
+    build: ../backend
+    environment: *api-env
+    ports: ["8000:8000"]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+    deploy:
+      replicas: 1  # 3 replicas: docker-compose.scale.yml
+
+  coturn:
+    image: coturn/coturn:4.6
+    network_mode: host  # turn needs lots of udp ports
+    volumes: [./coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro]
+    command: ["-c", "/etc/coturn/turnserver.conf", "--static-auth-secret=${KOLO_TURN_SECRET}"]
+
+volumes:
+  pgdata:

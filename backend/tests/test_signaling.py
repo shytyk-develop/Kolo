@@ -1,4 +1,4 @@
-"""Integration test: two clients walk through the signaling handshake over real WebSocket routes."""
+"""Signaling over real ws routes."""
 from collections import Counter
 from collections.abc import Iterator
 from contextlib import asynccontextmanager
@@ -29,25 +29,25 @@ def ws_url(ticket: dict) -> str:
 
 def test_two_peers_exchange_offer_answer_ice(client, events):
     room = create_room(client)
-    anya = join(client, room["code"], "Аня", room["host_secret"])
-    borya = join(client, room["code"], "Боря")
+    anya = join(client, room["code"], "Anya", room["host_secret"])
+    borya = join(client, room["code"], "Borya")
 
     with client.websocket_connect(ws_url(anya)) as ws_a:
         welcome_a = ws_a.receive_json()
         assert welcome_a["type"] == "welcome" and welcome_a["peers"] == []
-        assert welcome_a["you"] == {"id": anya["participant_id"], "name": "Аня", "role": "host"}
+        assert welcome_a["you"] == {"id": anya["participant_id"], "name": "Anya", "role": "host"}
 
         with client.websocket_connect(ws_url(borya)) as ws_b:
             welcome_b = ws_b.receive_json()
-            assert [p["name"] for p in welcome_b["peers"]] == ["Аня"]
+            assert [p["name"] for p in welcome_b["peers"]] == ["Anya"]
 
             joined = ws_a.receive_json()
             assert joined == {
                 "type": "peer-joined",
-                "peer": {"id": borya["participant_id"], "name": "Боря", "role": "guest"},
+                "peer": {"id": borya["participant_id"], "name": "Borya", "role": "guest"},
             }
 
-            # The newcomer calls those who are already in the room
+            # newcomer calls the ones already in
             ws_b.send_json({"type": "offer", "to": anya["participant_id"], "sdp": "v=0..."})
             offer = ws_a.receive_json()
             assert offer == {"type": "offer", "from": borya["participant_id"], "sdp": "v=0..."}
@@ -86,7 +86,7 @@ def test_bad_messages_get_errors_not_disconnects(client):
     a = join(client, room["code"], "A")
     with client.websocket_connect(ws_url(a)) as ws:
         ws.receive_json()
-        ws.send_text("не json")
+        ws.send_text("not json")
         assert ws.receive_json()["code"] == "bad_message"
         ws.send_json({"type": "launch-rockets"})
         assert ws.receive_json()["code"] == "bad_message"
@@ -118,7 +118,7 @@ def test_room_full(client):
         client.websocket_connect(ws_url(tickets[1])) as ws_b,
     ):
         ws_a.receive_json(), ws_b.receive_json()
-        # REST doesn't let a fourth one in either
+        # REST rejects one more too
         response = client.post(f"/api/v1/rooms/{room['code']}/join", json={"display_name": "D"})
         assert response.status_code == 409
         with client.websocket_connect(ws_url(tickets[2])) as ws_c:
@@ -132,7 +132,7 @@ def test_room_full(client):
 
 
 def test_websocket_rate_limit_lets_only_the_burst_through(client, settings):
-    # almost no refill while the test runs, so the numbers are exact: the burst passes, the rest doesn't
+    # almost no refill, so exact counts: burst passes, the rest doesn't
     settings.ws_messages_per_second = 0.001
     ticket = join(client, create_room(client)["code"], "A")
 
@@ -156,7 +156,7 @@ def test_endless_flood_gets_disconnected(client, settings):
             ws.send_json({"type": "ping"})
 
         assert all(ws.receive_json()["type"] == "pong" for _ in range(settings.ws_burst))
-        # the last violation closes the socket instead of answering
+        # last violation closes instead of answering
         assert all(ws.receive_json()["code"] == "rate_limited" for _ in range(MAX_VIOLATIONS - 1))
         with pytest.raises(WebSocketDisconnect) as closed:
             ws.receive_json()
@@ -169,7 +169,7 @@ CONNECTION_LOST = {"_connection_lost": True}
 
 
 class FlakyBroker(MemoryBroker):
-    """In-memory broker that can fail the way a Redis connection does."""
+    """Memory broker that can fail like a redis connection."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -217,7 +217,7 @@ def flaky(settings: Settings) -> Iterator[tuple[TestClient, FlakyBroker]]:
 
 def two_tickets(client: TestClient) -> tuple[dict, dict]:
     code = client.post("/api/v1/rooms", json={"max_participants": 2}).json()["code"]
-    return join(client, code, "Аня"), join(client, code, "Боря")
+    return join(client, code, "Anya"), join(client, code, "Borya")
 
 
 def connect(client: TestClient, ticket: dict):
@@ -244,7 +244,7 @@ def test_lost_listener_closes_sessions_and_reconnect_recovers(flaky) -> None:
         assert_try_again_later(ws_anya)
         assert_try_again_later(ws_boris)
 
-    # The same tokens still work, and the room gets a fresh subscription
+    # same tokens still work, room gets a new subscription
     with connect(client, anya) as ws_anya:
         assert ws_anya.receive_json()["peers"] == []
 
@@ -272,11 +272,11 @@ def test_failed_publish_closes_only_the_sender(flaky) -> None:
             assert ws_anya.receive_json()["type"] == "peer-joined"
 
             broker.fail_publish = True
-            ws_boris.send_json({"type": "chat", "text": "привет"})
+            ws_boris.send_json({"type": "chat", "text": "hi"})
             assert_try_again_later(ws_boris)
             broker.fail_publish = False
 
-        # Anya's listener survived, so she sees Boris come back
+        # Anya's listener survived, she sees Borya again
         with connect(client, boris) as ws_boris:
             assert ws_boris.receive_json()["type"] == "welcome"
             assert ws_anya.receive_json()["type"] == "peer-joined"
@@ -295,9 +295,9 @@ def test_failed_subscribe_closes_with_try_again_later(flaky) -> None:
         assert ws_anya.receive_json()["type"] == "welcome"
 
 
-# ---------- Redis or the database is down while a client connects ----------
+# ---------- redis or db down while connecting ----------
 
-# Nothing listens on this port, so real client libraries fail with their real exceptions
+# nothing listens here, real clients fail with real errors
 CLOSED_PORT = 1
 
 
@@ -312,7 +312,7 @@ def outage(request, settings: Settings) -> Iterator[TestClient]:
                     host="127.0.0.1",
                     port=CLOSED_PORT,
                     decode_responses=True,
-                    retry=Retry(NoBackoff(), 0),  # the default backoff takes seconds per command
+                    retry=Retry(NoBackoff(), 0),  # default backoff takes seconds
                 ),
             )
 
@@ -339,20 +339,20 @@ def test_http_returns_503_during_outage(outage: TestClient) -> None:
     code = generate_room_code()
 
     assert_service_unavailable(outage.post("/api/v1/rooms", json={}))
-    assert_service_unavailable(outage.post(f"/api/v1/rooms/{code}/join", json={"display_name": "Аня"}))
+    assert_service_unavailable(outage.post(f"/api/v1/rooms/{code}/join", json={"display_name": "Anya"}))
 
 
 def test_websocket_closes_with_1013_during_outage(outage: TestClient, settings: Settings) -> None:
     code = generate_room_code()
-    # /join is down as well, so issue the token the client already got before the outage
-    token = create_room_token(settings, room=code, participant_id="p_1", name="Аня", role=Role.GUEST)
+    # /join is down too, use a token from before the outage
+    token = create_room_token(settings, room=code, participant_id="p_1", name="Anya", role=Role.GUEST)
 
     with outage.websocket_connect(f"/ws/rooms/{code}?token={token}") as ws:
         assert_try_again_later(ws)
 
 
 def asyncpg_error(sqlstate: str) -> DBAPIError:
-    """What SQLAlchemy raises for an asyncpg error: a generic wrapper carrying the SQLSTATE."""
+    """What SQLAlchemy raises for asyncpg errors: DBAPIError with the SQLSTATE."""
     orig = Exception(f"asyncpg error {sqlstate}")
     orig.sqlstate = sqlstate
     return DBAPIError("SELECT 1", {}, orig)
@@ -381,7 +381,7 @@ def test_only_outages_become_503(settings: Settings, error: Exception, expected_
     app = create_app(settings, container_factory=factory)
     with TestClient(app, raise_server_exceptions=False) as test_client:
         response = test_client.post(
-            f"/api/v1/rooms/{generate_room_code()}/join", json={"display_name": "Аня"}
+            f"/api/v1/rooms/{generate_room_code()}/join", json={"display_name": "Anya"}
         )
 
     assert response.status_code == expected_status

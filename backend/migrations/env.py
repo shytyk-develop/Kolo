@@ -1,4 +1,4 @@
-"""Alembic в асинхронном режиме: миграции идут через тот же драйвер asyncpg."""
+"""Alembic in async mode, same asyncpg driver as the app."""
 import asyncio
 from logging.config import fileConfig
 

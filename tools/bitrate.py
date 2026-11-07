@@ -1,8 +1,8 @@
 # tools/bitrate.py
 
-# Maximum payload size in bytes per single RTP video packet
+# max rtp video payload per packet
 MTU_PAYLOAD = 1200
-# Fixed header overhead per packet: IPv4 (20B) + UDP (8B) + RTP (12B)
+# headers per packet: ipv4 20 + udp 8 + rtp 12
 IP_UDP_RTP_OVERHEAD_BYTES = 40
 
 

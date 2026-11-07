@@ -24,7 +24,7 @@ def test_turn_credentials_match_coturn_formula() -> None:
 
 
 def test_turn_credentials_match_known_value() -> None:
-    # Precomputed: unlike the formula above, this also catches a change in the algorithm itself
+    # fixed value, also catches a changed algorithm
     _, credential = turn_credentials("north", "p_42", ttl_seconds=3600, now=1_700_000_000)
 
     assert credential == "sOCMPz+d9GXKCRpPXUEtBvRJv1w="
@@ -32,7 +32,7 @@ def test_turn_credentials_match_known_value() -> None:
 
 def test_ice_servers_without_turn_have_no_credentials(settings: Settings) -> None:
     settings.stun_urls, settings.turn_urls = STUN, TURN
-    settings.turn_secret = None  # URLs alone, no secret to sign logins with
+    settings.turn_secret = None  # urls only, no secret to sign with
 
     assert ice_servers_for(settings, "p_42") == [{"urls": STUN}]
 
@@ -45,7 +45,7 @@ def test_join_returns_a_personal_turn_login(settings: Settings) -> None:
         code = client.post("/api/v1/rooms", json={}).json()["code"]
         tickets = [
             client.post(f"/api/v1/rooms/{code}/join", json={"display_name": name}).json()
-            for name in ("Аня", "Боря")
+            for name in ("Anya", "Borya")
         ]
 
     logins = set()
@@ -54,7 +54,7 @@ def test_join_returns_a_personal_turn_login(settings: Settings) -> None:
         assert stun == {"urls": STUN}
         assert turn["urls"] == TURN
 
-        # This is exactly the check coturn does: only the secret can produce this credential
+        # same check coturn does
         expires_at, _, peer = turn["username"].partition(":")
         assert peer == ticket["participant_id"]
         assert expires_at.isdigit()
@@ -70,7 +70,7 @@ def test_join_without_turn_returns_only_stun(settings: Settings) -> None:
 
     with TestClient(create_app(settings)) as client:
         code = client.post("/api/v1/rooms", json={}).json()["code"]
-        ticket = client.post(f"/api/v1/rooms/{code}/join", json={"display_name": "Аня"}).json()
+        ticket = client.post(f"/api/v1/rooms/{code}/join", json={"display_name": "Anya"}).json()
 
-    # No "username": null either: the browser would treat it as the string "null"
+    # no "username": null, the browser reads it as "null"
     assert ticket["ice_servers"] == [{"urls": STUN}]

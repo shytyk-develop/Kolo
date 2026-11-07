@@ -1,48 +1,49 @@
-"""Horizontal scaling check: Anya on server :8001, Borya on :8002.
+"""Checks that two servers pass messages to each other through Redis.
 
-Start two servers that share Postgres and Redis:
-    uv run uvicorn kolo.main:create_app --factory --port 8001
-    uv run uvicorn kolo.main:create_app --factory --port 8002
-and then: uv run python scripts/two_servers_check.py
+Run two servers on :8001 and :8002 (same postgres + redis), then:
+    uv run python scripts/two_servers_check.py
+Behind caddy pass the same url twice:
+    uv run python scripts/two_servers_check.py http://localhost:8000 http://localhost:8000
 """
 import asyncio
 import json
+import sys
 
 import httpx
 import websockets
 
-A, B = "http://localhost:8001", "http://localhost:8002"
+A, B = sys.argv[1:3] if len(sys.argv) == 3 else ("http://localhost:8001", "http://localhost:8002")
 
 
 async def main() -> None:
     async with httpx.AsyncClient() as http:
-        room = (await http.post(f"{A}/api/v1/rooms", json={"name": "Два сервера"})).json()
+        room = (await http.post(f"{A}/api/v1/rooms", json={"name": "Two servers"})).json()
         code = room["code"]
         anya = (
             await http.post(
                 f"{A}/api/v1/rooms/{code}/join",
-                json={"display_name": "Аня", "host_secret": room["host_secret"]},
+                json={"display_name": "Anya", "host_secret": room["host_secret"]},
             )
         ).json()
-        borya = (await http.post(f"{B}/api/v1/rooms/{code}/join", json={"display_name": "Боря"})).json()
+        borya = (await http.post(f"{B}/api/v1/rooms/{code}/join", json={"display_name": "Borya"})).json()
 
-    ws_a_url = f"ws://localhost:8001{anya['ws_path']}?token={anya['token']}"
-    ws_b_url = f"ws://localhost:8002{borya['ws_path']}?token={borya['token']}"
+    ws_a_url = f"{A.replace('http', 'ws', 1)}{anya['ws_path']}?token={anya['token']}"
+    ws_b_url = f"{B.replace('http', 'ws', 1)}{borya['ws_path']}?token={borya['token']}"
 
     async with websockets.connect(ws_a_url) as ws_a:
-        print("Аня (:8001) <-", json.loads(await ws_a.recv())["type"])
+        print(f"Anya ({A}) <-", json.loads(await ws_a.recv())["type"])
 
         async with websockets.connect(ws_b_url) as ws_b:
             welcome = json.loads(await ws_b.recv())
-            print("Боря (:8002) <-", welcome["type"], "peers:", [p["name"] for p in welcome["peers"]])
-            print("Аня (:8001) <-", json.loads(await ws_a.recv())["type"])
+            print(f"Borya ({B}) <-", welcome["type"], "peers:", [p["name"] for p in welcome["peers"]])
+            print(f"Anya ({A}) <-", json.loads(await ws_a.recv())["type"])
 
             await ws_b.send(json.dumps({"type": "offer", "to": anya["participant_id"], "sdp": "v=0"}))
             offer = json.loads(await ws_a.recv())
-            print("Аня (:8001) <-", offer["type"], "от", offer["from"])
+            print(f"Anya ({A}) <-", offer["type"], "from", offer["from"])
             assert offer["from"] == borya["participant_id"]
 
-    print("OK: сообщения ходят между серверами через Redis")
+    print("OK: messages travel between servers via Redis")
 
 
 asyncio.run(main())

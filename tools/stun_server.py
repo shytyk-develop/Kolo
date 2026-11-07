@@ -1,4 +1,4 @@
-"""Toy STUN server: replies to a client with its own address. For checking the client locally."""
+"""Toy STUN server, replies with the client's address. For testing the client."""
 import socket
 import struct
 
@@ -16,7 +16,7 @@ def make_response(transaction_id: bytes, ip: str, port: int) -> bytes:
 if __name__ == "__main__":
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
         sock.bind(("127.0.0.1", 3479))
-        print("Игрушечный STUN слушает 127.0.0.1:3479")
+        print("Toy STUN listening on 127.0.0.1:3479")
         while True:
             data, (ip, port) = sock.recvfrom(2048)
             sock.sendto(make_response(data[8:20], ip, port), (ip, port))

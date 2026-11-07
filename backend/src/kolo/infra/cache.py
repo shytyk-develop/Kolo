@@ -1,6 +1,6 @@
 # src/kolo/infra/cache.py
 
-"""Simple key -> string cache with a TTL. Two implementations: in-memory and Redis."""
+"""key -> string cache with ttl, memory and redis versions."""
 import time
 from typing import Protocol
 

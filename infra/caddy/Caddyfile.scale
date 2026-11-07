@@ -1,0 +1,11 @@
+# balancer for docker-compose.scale.yml, round robin over api replicas
+# caddy ignores client X-Forwarded-For and sets the real ip
+:80 {
+	reverse_proxy {
+		# re-resolve api to pick up replicas
+		dynamic a api 8000 {
+			refresh 5s
+		}
+		lb_policy round_robin
+	}
+}

@@ -1,4 +1,4 @@
-"""Signaling protocol: what messages the client can throw at us over WebSockets."""
+"""Messages the client can send over ws."""
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, TypeAdapter
@@ -18,7 +18,7 @@ class AnswerMessage(BaseModel):
 class IceMessage(BaseModel):
     type: Literal["ice"]
     to: PeerId
-    candidate: dict | None  # None means "we are out of candidates"
+    candidate: dict | None  # None = no more candidates
 
 class ChatMessage(BaseModel):
     type: Literal["chat"]
@@ -40,8 +40,7 @@ class DenyMessage(BaseModel):
 class PingMessage(BaseModel):
     type: Literal["ping"]
 
-# Bundle them all up into a single union type so Pydantic can figure out 
-# which model to use based on the "type" discriminator field
+# one union, pydantic picks the model by "type"
 ClientMessage = Annotated[
     OfferMessage | AnswerMessage | IceMessage | ChatMessage | MediaStateMessage
     | AdmitMessage | DenyMessage | PingMessage,

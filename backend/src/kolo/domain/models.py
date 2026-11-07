@@ -1,6 +1,6 @@
 # src/kolo/domain/models.py
 
-"""Domain entities — pure dataclasses without dependencies on FastAPI or DB."""
+"""Domain models, plain dataclasses."""
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from enum import StrEnum
@@ -24,12 +24,12 @@ class Room:
         return now >= self.expires_at
 
     def requires_admission(self, role: Role) -> bool:
-        """Whether the host has to let this role in before it sees or sends anything."""
+        """Guests in a lobby room need the host's ok."""
         return self.lobby_enabled and role is Role.GUEST
 
 @dataclass(frozen=True, slots=True)
 class Peer:
-    """Call participant. Lives as long as the WebSocket connection."""
+    """Call participant, lives as long as its ws."""
     id: str
     name: str
     role: Role

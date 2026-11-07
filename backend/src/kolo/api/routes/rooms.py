@@ -17,24 +17,23 @@ async def create_room(
     c: ContainerDep,
     x_api_key: Annotated[str | None, Header()] = None,
 ) -> RoomCreatedResponse:
-    # Проверяем API-ключ
+    # check api key
     trusted = check_api_key(c.settings, x_api_key)
     
     if c.settings.require_api_key and not trusted:
-        raise Unauthorized("Нужен заголовок X-API-Key")
+        raise Unauthorized("X-API-Key header required")
         
-    # Если это не наш доверенный сервис - списываем жетон
+    # not a trusted service -> take a token from the ip limiter
     if not trusted and not c.room_limiter.allow(client_ip(request)):
         raise RateLimited()
         
-    # ИСПРАВЛЕНИЕ: Сохраняем объект целиком в переменную created
     created = await c.rooms.create_room(body.name, body.max_participants, body.lobby_enabled)
     
     return RoomCreatedResponse(
         code=created.room.code,
         name=created.room.name,
         join_url=f"{c.settings.frontend_url}/r/{created.room.code}",
-        host_secret=created.host_secret,  # Достаем секрет через точку
+        host_secret=created.host_secret,  # shown only here, once
         max_participants=created.room.max_participants,
         lobby_enabled=created.room.lobby_enabled,
         expires_at=created.room.expires_at,
@@ -47,8 +46,7 @@ async def join_room(code: str, body: JoinRequest, c: ContainerDep) -> JoinRespon
     media: dict = {}
     if uses_sfu(c.settings, ticket.room):
         media = {"media_mode": "sfu", "sfu_url": c.settings.livekit_url}
-        # LiveKit knows nothing about our lobby: a token handed out here would let a guest skip it.
-        # guests who need admission get theirs in the welcome message, see PeerSession._join
+        # livekit doesn't know about the lobby, so lobby guests get the token in welcome after admit
         if not ticket.room.requires_admission(ticket.role):
             media["sfu_token"] = sfu_token(
                 c.settings, ticket.room, ticket.participant_id, body.display_name, ticket.role
