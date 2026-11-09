@@ -30,6 +30,7 @@ build-backend = "uv_build"
 dev = [
     "aiosqlite>=0.22.1",
     "fakeredis>=2.40.0",
+    "kolo-client",
     "pytest>=9.2.0",
     "pytest-asyncio>=1.4.1.post1",
     "pytest-cov>=7.1.0",
@@ -48,3 +49,6 @@ target-version = "py312"
 [tool.ruff.lint]
 # ASYNC catches blocking calls in async functions
 select = ["E", "F", "I", "B", "UP", "ASYNC"]
+
+[tool.uv.sources]
+kolo-client = { path = "../sdk", editable = true }

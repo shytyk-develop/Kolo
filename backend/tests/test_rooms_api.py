@@ -92,6 +92,45 @@ def test_expired_room_is_410(client, settings):
     assert error_code(response) == "room_expired"
 
 
+def test_public_room_info(client):
+    room = create_room(client, name="Order #42", max_participants=4, lobby_enabled=True)
+
+    response = client.get(f"/api/v1/rooms/{room['code']}")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "code": room["code"],
+        "name": "Order #42",
+        "max_participants": 4,
+        "lobby_enabled": True,
+        "participants": 0,
+    }
+
+
+def test_public_room_info_counts_people_in_the_call(client):
+    room = create_room(client)
+    ticket = join(client, room["code"], "Anya")
+
+    with client.websocket_connect(f"{ticket['ws_path']}?token={ticket['token']}") as ws:
+        ws.receive_json()
+        assert client.get(f"/api/v1/rooms/{room['code']}").json()["participants"] == 1
+
+    assert client.get(f"/api/v1/rooms/{room['code']}").json()["participants"] == 0
+
+
+def test_public_room_info_hides_the_host_secret(client):
+    room = create_room(client)
+    assert room["host_secret"] not in client.get(f"/api/v1/rooms/{room['code']}").text
+
+
+def test_public_room_info_errors(client, settings):
+    assert error_code(client.get("/api/v1/rooms/zzz-zzzz-zzz")) == "room_not_found"
+    settings.room_ttl_hours = 0
+    code = create_room(client)["code"]
+    response = client.get(f"/api/v1/rooms/{code}")
+    assert (response.status_code, error_code(response)) == (410, "room_expired")
+
+
 def test_display_name_is_cleaned(client, settings):
     code = create_room(client)["code"]
 

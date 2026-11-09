@@ -17,7 +17,7 @@ from kolo.repositories.base import RoomRepository
 from kolo.repositories.cached import CachedRoomRepository
 from kolo.repositories.memory import InMemoryRoomRepository
 from kolo.repositories.sql import SqlRoomRepository
-from kolo.services.events import EventSink, NullEventSink
+from kolo.services.events import EventSink, NullEventSink, WebhookSender
 from kolo.services.rooms import RoomService
 from kolo.services.signaling.hub import SignalingHub
 
@@ -93,8 +93,14 @@ async def build_container(
 
     repo = CachedRoomRepository(base_repo, cache, settings.room_cache_ttl_seconds)
 
-    # 3. events (webhooks in ch15)
-    events = events or NullEventSink()
+    # 3. events: webhooks if configured
+    if events is None:
+        if settings.webhook_url:
+            webhooks = WebhookSender(settings)
+            closers.append(webhooks.aclose)
+            events = webhooks
+        else:
+            events = NullEventSink()
 
     # bucket = limit per minute, refills every second
     per_minute = settings.rooms_per_minute_per_ip
@@ -105,7 +111,7 @@ async def build_container(
         presence=presence,
         broker=broker,
         hub=SignalingHub(broker),
-        rooms=RoomService(repo, settings, presence),
+        rooms=RoomService(repo, settings, presence, events),
         events=events,
         room_limiter=KeyedRateLimiter(capacity=per_minute, rate=per_minute / 60),
         checks=checks,

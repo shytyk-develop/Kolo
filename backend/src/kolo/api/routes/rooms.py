@@ -5,7 +5,13 @@ from fastapi import APIRouter, Header, Request
 from kolo.api.deps import ContainerDep, client_ip
 from kolo.core.security import check_api_key
 from kolo.domain.errors import RateLimited, Unauthorized
-from kolo.schemas.rooms import CreateRoomRequest, JoinRequest, JoinResponse, RoomCreatedResponse
+from kolo.schemas.rooms import (
+    CreateRoomRequest,
+    JoinRequest,
+    JoinResponse,
+    RoomCreatedResponse,
+    RoomPublicResponse,
+)
 from kolo.services.sfu import sfu_token, uses_sfu
 
 router = APIRouter(tags=["rooms"])
@@ -38,6 +44,19 @@ async def create_room(
         lobby_enabled=created.room.lobby_enabled,
         expires_at=created.room.expires_at,
     )
+
+# public info, the page shows it before joining
+@router.get("/{code}", response_model=RoomPublicResponse)
+async def get_room(code: str, c: ContainerDep) -> RoomPublicResponse:
+    room = await c.rooms.get_room(code)
+    return RoomPublicResponse(
+        code=room.code,
+        name=room.name,
+        max_participants=room.max_participants,
+        lobby_enabled=room.lobby_enabled,
+        participants=await c.rooms.participants_count(room),
+    )
+
 
 @router.post("/{code}/join", response_model=JoinResponse, response_model_exclude_none=True)
 async def join_room(code: str, body: JoinRequest, c: ContainerDep) -> JoinResponse:

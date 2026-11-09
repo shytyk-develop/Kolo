@@ -11,6 +11,7 @@ from kolo.domain.models import Role, Room
 from kolo.domain.room_codes import generate_room_code, is_valid_room_code, normalize_room_code
 from kolo.infra.presence import PresenceStore
 from kolo.repositories.base import RoomRepository
+from kolo.services.events import EventSink, NullEventSink
 from kolo.services.turn import ice_servers_for
 
 
@@ -37,11 +38,13 @@ class RoomService:
         repo: RoomRepository,
         settings: Settings,
         presence: PresenceStore,
+        events: EventSink | None = None,
         clock=utcnow,
     ) -> None:
         self._repo = repo
         self._settings = settings
         self._presence = presence
+        self._events = events or NullEventSink()
         self._clock = clock
 
     async def create_room(
@@ -76,7 +79,18 @@ class RoomService:
                 await self._repo.add(room)
             except RoomCodeTaken:
                 continue
-                
+
+            # no host_secret here, it never leaves kolo
+            self._events.emit(
+                "room.created",
+                {
+                    "code": room.code,
+                    "name": room.name,
+                    "max_participants": room.max_participants,
+                    "lobby_enabled": room.lobby_enabled,
+                    "expires_at": room.expires_at.isoformat(),
+                },
+            )
             return CreatedRoom(room=room, host_secret=host_secret)
             
         raise RuntimeError("Failed to generate a unique room code")

@@ -80,7 +80,11 @@ class Settings(BaseSettings):
     frontend_url: str = "http://localhost:3000"
 
     @model_validator(mode="after")
-    def _refuse_known_secrets_in_prod(self) -> "Settings":
+    def _check_secrets(self) -> "Settings":
+        # unsigned webhooks are useless, fail right away in any env
+        if self.webhook_url and (self.webhook_secret is None or not self.webhook_secret.get_secret_value()):
+            raise ValueError("KOLO_WEBHOOK_SECRET is required when KOLO_WEBHOOK_URL is set")
+
         if self.env != "prod":
             return self
 
@@ -91,6 +95,8 @@ class Settings(BaseSettings):
             missing.append("KOLO_TURN_SECRET")
         if self.livekit_url and _is_known(self.livekit_api_secret):
             missing.append("KOLO_LIVEKIT_API_SECRET")
+        if self.webhook_url and _is_known(self.webhook_secret):
+            missing.append("KOLO_WEBHOOK_SECRET")
 
         if missing:
             raise ValueError(f"Refusing to start in prod, set real values for: {', '.join(missing)}")
