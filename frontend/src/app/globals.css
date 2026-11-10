@@ -2437,9 +2437,10 @@ input {
     height: 50px;
   }
 
+  /* air under the code field inside the card, plus the home indicator's room on iPhones */
   .home__bottom {
     margin-top: 0;
-    padding-bottom: max(16px, env(safe-area-inset-bottom));
+    padding-bottom: calc(38px + env(safe-area-inset-bottom));
   }
 
   .home__e2e {
