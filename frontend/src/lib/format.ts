@@ -12,3 +12,13 @@ export function formatDuration(ms: number): string {
   const s = String(total % 60).padStart(2, "0");
   return h ? `${h}:${String(m).padStart(2, "0")}:${s}` : `${String(m).padStart(2, "0")}:${s}`;
 }
+
+/** Soft two-tone avatar color from the name, the same name always gets the same color. */
+export function avatarStyle(name: string): { background: string } | undefined {
+  const key = name.trim().toLowerCase();
+  if (!key) return undefined;
+  let hash = 0;
+  for (const ch of key) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
+  const hue = hash % 360;
+  return { background: `linear-gradient(145deg, hsl(${hue} 42% 58%), hsl(${(hue + 24) % 360} 46% 40%))` };
+}

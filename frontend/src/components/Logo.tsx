@@ -28,7 +28,7 @@ export function Logo({ className }: { className?: string }) {
       {BLOCKS.map(([x, y]) => (
         <rect key={`${x}-${y}`} x={x} y={y} width={B} height={B} rx={4} fill="currentColor" />
       ))}
-      <rect x={495} y={175} width={B} height={B} rx={3} fill="var(--green)" />
+      <rect className="logo__dot" x={495} y={175} width={B} height={B} rx={3} fill="var(--green)" />
     </svg>
   );
 }

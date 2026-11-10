@@ -1,5 +1,5 @@
 // small inline icons, they take the text color
-import type { SVGProps } from "react";
+import { useId, type Ref, type SVGProps } from "react";
 
 type IconProps = SVGProps<SVGSVGElement> & { size?: number };
 
@@ -98,5 +98,87 @@ export const CopyIcon = (p: IconProps) => (
 export const CheckIcon = (p: IconProps) => (
   <Svg {...p}>
     <path d="m5 12.5 4.5 4.5L19 7.5" />
+  </Svg>
+);
+
+// mic / camera with a slash that draws in and out instead of swapping the icon.
+// The mask cuts a gap around the slash, like the system icons.
+function Slashed({ off, children, ...p }: IconProps & { off: boolean }) {
+  // useId has characters url(#...) doesn't like
+  const id = `cut${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
+  return (
+    <Svg {...p}>
+      <mask id={id} maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24">
+        <rect width="24" height="24" fill="white" stroke="none" />
+        <path d="M4 3.5 20.5 20" stroke="black" strokeWidth={5} pathLength={1} className="slash" data-on={off || undefined} />
+      </mask>
+      <g mask={`url(#${id})`}>{children}</g>
+      <path d="M4 3.5 20.5 20" pathLength={1} className="slash" data-on={off || undefined} />
+    </Svg>
+  );
+}
+
+// fillRef: a green "liquid" rect inside the capsule, the caller scales it with the voice
+export function MicGlyph({ off, fillRef, ...p }: IconProps & { off: boolean; fillRef?: Ref<SVGRectElement> }) {
+  const clip = `cap${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
+  return (
+    <Slashed off={off} {...p}>
+      {fillRef && (
+        <>
+          <clipPath id={clip}>
+            <rect x="9" y="3" width="6" height="11" rx="3" />
+          </clipPath>
+          <rect ref={fillRef} className="mic-fill" x="9" y="3" width="6" height="11" clipPath={`url(#${clip})`} />
+        </>
+      )}
+      <rect x="9" y="3" width="6" height="11" rx="3" />
+      <path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21" />
+    </Slashed>
+  );
+}
+
+export const CamGlyph = ({ off, ...p }: IconProps & { off: boolean }) => (
+  <Slashed off={off} {...p}>
+    <rect x="3" y="6.5" width="12.5" height="11" rx="2.5" />
+    <path d="M15.5 10.5 21 7.5v9l-5.5-3" />
+  </Slashed>
+);
+
+/** Spins with transform only, stays on the compositor. */
+export const Spinner = ({ size = 16, className }: { size?: number; className?: string }) => (
+  <span className={`spinner${className ? ` ${className}` : ""}`} style={{ width: size, height: size }} aria-hidden />
+);
+
+export const PinIcon = ({ filled, ...p }: IconProps & { filled?: boolean }) => (
+  <Svg {...p}>
+    <path
+      d="M9 3.5h6l-1 5.5 3.5 3.5v1.5h-11V12.5L10 9z"
+      fill={filled ? "currentColor" : "none"}
+      style={{ transition: "fill 200ms ease" }}
+    />
+    <path d="M12 14v6.5" />
+  </Svg>
+);
+
+// put the floating video back into the island
+export const DockIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="3.5" y="5" width="17" height="14" rx="3" />
+    <path d="M9 9.5h5.5V15M14.5 9.5 8.5 15.5" />
+  </Svg>
+);
+
+// two halves, for split view
+export const SplitIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="3" y="5" width="7.5" height="14" rx="2.5" />
+    <rect x="13.5" y="5" width="7.5" height="14" rx="2.5" />
+  </Svg>
+);
+
+// one screen again, for leaving split view
+export const UnsplitIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="4" y="5" width="16" height="14" rx="3" />
   </Svg>
 );

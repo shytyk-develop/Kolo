@@ -17,11 +17,15 @@ interface Layer extends IslandItem {
 
 let nextId = 1;
 
-/** Top island that changes its content and size like the iPhone one. null hides it. */
+// hidden = shrinks to a small capsule and fades, appearing grows out of it
+const PILL = { w: 96, h: 30 };
+
+/** Floating top island that changes its content and size like the iPhone one. null hides it. */
 export function MorphIsland({ item }: { item: IslandItem | null }) {
-  // keep the last content while hiding, so it slides away with text in it
+  // keep the last content while hiding, so it slides away with text in it.
+  // Only on a new key: the parent makes a new item object every render.
   const [kept, setKept] = useState(item);
-  if (item && item !== kept) setKept(item);
+  if (item && item.key !== kept?.key) setKept(item);
   const shown = item ?? kept;
 
   const [leaving, setLeaving] = useState<Layer[]>([]);
@@ -59,19 +63,20 @@ export function MorphIsland({ item }: { item: IslandItem | null }) {
   }, [shown?.key]);
 
   const hidden = !item || !size;
-  const h = size?.h ?? 46;
+  const w = hidden ? PILL.w : size.w;
+  const h = hidden ? PILL.h : size.h;
 
   return (
     <Island
-      edge="top"
+      edge="float"
       className={`morph${shown?.tone === "danger" ? " morph--danger" : ""}`}
       data-hidden={hidden || undefined}
       aria-live="polite"
       style={
         {
-          "--w": `${size?.w ?? 0}px`,
+          "--w": `${w}px`,
           "--h": `${h}px`,
-          "--r": `${Math.min(h / 2, 28)}px`,
+          "--r": `${Math.min(h / 2, 26)}px`,
         } as React.CSSProperties
       }
     >

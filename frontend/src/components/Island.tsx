@@ -1,6 +1,7 @@
 import type { HTMLAttributes, Ref } from "react";
 
-export type Edge = "top" | "bottom" | "right";
+// float = free capsule near the top, like the iPhone one; the rest are glued to an edge
+export type Edge = "top" | "bottom" | "right" | "float";
 
 interface Props extends HTMLAttributes<HTMLDivElement> {
   edge: Edge;
@@ -14,8 +15,12 @@ interface Props extends HTMLAttributes<HTMLDivElement> {
 export function Island({ edge, className, children, ref, ...rest }: Props) {
   return (
     <div ref={ref} className={`island island--${edge}${className ? ` ${className}` : ""}`} {...rest}>
-      <span className="island__fillet island__fillet--a" aria-hidden />
-      <span className="island__fillet island__fillet--b" aria-hidden />
+      {edge !== "float" && (
+        <>
+          <span className="island__fillet island__fillet--a" aria-hidden />
+          <span className="island__fillet island__fillet--b" aria-hidden />
+        </>
+      )}
       <div className="island__body">{children}</div>
     </div>
   );
