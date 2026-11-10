@@ -11,6 +11,8 @@
   --btn-hover: #2c2c2e;
   --muted: #8e8e93;
   --frame-r: 28px;
+  /* corners of the videos themselves (stage, halves, join, home camera): square on phones */
+  --video-r: var(--frame-r);
 
   /* iOS-like spring, a little overshoot */
   --spring: linear(0, 0.0295, 0.1033, 0.2034, 0.3157, 0.4302, 0.5398, 0.64, 0.7283, 0.8035, 0.8656, 0.9154, 0.9541, 0.9829, 1.0036, 1.0174, 1.0259, 1.0303, 1.0315, 1.0307, 1.0284, 1.0252, 1.0217, 1.0181, 1.0146, 1.0115, 1.0087, 1.0063, 1.0043, 1.0027, 1.0015, 1.0006, 0.9999, 0.9995, 0.9992, 0.999, 1);
@@ -282,12 +284,16 @@ input {
 .island--float[data-hidden] {
   opacity: 0;
   scale: 0.92;
+  /* not drawn at all once faded: a page change snapshots it regardless of opacity, an empty
+     black pill would show through it */
+  visibility: hidden;
   pointer-events: none;
   transition:
     width 300ms var(--ease-out),
     height 300ms var(--ease-out),
     opacity 180ms ease 80ms,
-    scale 300ms var(--ease-out);
+    scale 300ms var(--ease-out),
+    visibility 0s linear 300ms;
 }
 
 .island--bottom {
@@ -423,6 +429,52 @@ input {
 
 .notice__text b {
   font-weight: 600;
+}
+
+/* an error with the way back: a round back button at the island's left end */
+.notice--back {
+  gap: 10px;
+  padding: 6px 18px 6px 6px;
+}
+.notice__back {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: #2c2c2e;
+  transition:
+    background-color var(--out) ease,
+    scale 420ms var(--spring);
+}
+.notice__back:active {
+  scale: 0.9;
+  transition: scale 90ms ease-out;
+}
+@media (hover: hover) and (pointer: fine) {
+  .notice__back:hover {
+    background-color: #3a3a3c;
+    transition-duration: var(--in), 420ms;
+  }
+}
+.notice--back .notice__text {
+  white-space: normal;
+  line-height: 18px;
+}
+
+/* phones: the call clock in the top island, small, digits that don't wobble */
+.notice--timer {
+  gap: 8px;
+  min-height: 32px;
+  padding: 4px 14px 4px 12px;
+}
+.notice__time {
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.2px;
 }
 
 .notice__icon {
@@ -583,7 +635,7 @@ input {
   min-height: 560px;
   overflow: hidden;
   isolation: isolate;
-  border-radius: 0 var(--frame-r) var(--frame-r) 0;
+  border-radius: 0 var(--video-r) var(--video-r) 0;
   background: #111;
 }
 
@@ -826,7 +878,7 @@ input {
   inset: 0;
   overflow: hidden;
   isolation: isolate;
-  border-radius: var(--frame-r);
+  border-radius: var(--video-r);
 }
 
 .joinbar {
@@ -912,7 +964,7 @@ input {
 
 /* bottom bar rises in on load */
 .joinbar {
-  animation: rise 0.6s var(--glide) 0.1s both;
+  animation: rise 0.46s var(--glide) both;
 }
 @keyframes rise {
   /* starts 1px inside the screen: still unseen, but "on screen", so a page change gives it
@@ -1024,7 +1076,7 @@ input {
   height: 100%;
   overflow: hidden;
   isolation: isolate;
-  border-radius: var(--frame-r);
+  border-radius: var(--video-r);
   background: #111;
 }
 
@@ -1157,7 +1209,7 @@ input {
   height: 100%;
   display: grid;
   place-items: center;
-  border-radius: var(--frame-r);
+  border-radius: var(--video-r);
   background: rgba(0, 0, 0, 0.18);
   box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.28);
   pointer-events: none;
@@ -2299,6 +2351,13 @@ input {
 
 /* ---------- phones ---------- */
 
+/* phones (same breakpoints as usePhone): videos go edge to edge, square corners */
+@media (max-width: 640px), (max-height: 500px) {
+  :root {
+    --video-r: 0px;
+  }
+}
+
 /* phones: one screen, no scrolling. The card takes what its content needs at the bottom,
    the camera gets all the rest above it */
 @media (max-width: 760px) {
@@ -2311,7 +2370,7 @@ input {
     flex: 1 1 0;
     height: auto;
     min-height: 0;
-    border-radius: 0 0 var(--frame-r) var(--frame-r);
+    border-radius: 0 0 var(--video-r) var(--video-r);
   }
 
   .home__controls {
@@ -2323,8 +2382,15 @@ input {
     flex: none;
     width: auto;
     min-height: 0;
-    margin: 10px 10px max(10px, env(safe-area-inset-bottom));
-    padding: 26px 24px 0;
+    /* on the bottom edge, no gap under it; the home indicator's room is inside it */
+    margin: 10px 10px 0;
+    padding: 20px 22px 0;
+    /* 60 / 40: the camera gets 60% of the screen, this panel at least the other 40% (the
+       camera gives way if the panel needs more on a tiny screen). Logo up top, the code at
+       the bottom, the actions in between */
+    min-height: calc(40% - 10px);
+    justify-content: space-between;
+    border-radius: var(--frame-r) var(--frame-r) 0 0;
   }
 
   .home__brand {
@@ -2332,13 +2398,18 @@ input {
   }
 
   .home__logo {
-    width: 150px;
+    width: 132px;
   }
 
   .home__tagline {
-    margin-top: 10px;
+    margin-top: 8px;
     font-size: 15px;
-    line-height: 21px;
+    line-height: 20px;
+  }
+  /* compact: one line of tagline, no footnote */
+  .home__more,
+  .home__e2e {
+    display: none;
   }
 
   /* the row joins the flow, the tongue still glued to the left edge of the card */
@@ -2348,27 +2419,27 @@ input {
     left: auto;
     right: auto;
     translate: none;
-    margin: 20px 0 20px -24px;
+    margin: 14px 0 14px -22px;
   }
 
   .notch__btn {
-    height: 64px;
-    --nr: 32px;
-    padding: 0 26px 0 24px;
+    height: 58px;
+    --nr: 29px;
+    padding: 0 24px 0 22px;
     font-size: 17px;
   }
 
   .home__label {
-    margin-bottom: 8px;
+    margin-bottom: 6px;
   }
 
   .codefield {
-    height: 52px;
+    height: 50px;
   }
 
   .home__bottom {
     margin-top: 0;
-    padding-bottom: 20px;
+    padding-bottom: max(16px, env(safe-area-inset-bottom));
   }
 
   .home__e2e {
@@ -2382,7 +2453,7 @@ input {
     display: none;
   }
   .home__actions {
-    margin: 16px 0 16px -24px;
+    margin: 12px 0 12px -22px;
   }
 }
 
@@ -2422,7 +2493,7 @@ input {
     padding-bottom: 14px;
   }
   .home__e2e {
-    margin-top: 10px;
+    display: none;
   }
   .home__controls {
     left: 20px;
@@ -2487,103 +2558,69 @@ input {
   }
 }
 
-/* ---------- page changes (view transitions) ----------
-   The camera is one object across home, join and call: it morphs between its spots.
-   The rest of the page: the old one stays put and the new one fades in over it, a little
-   late, so the new page's fresh video already has its first frame when it shows */
-/* the page under the animation is already the new one: clicks and typing go straight to it,
-   nothing you do in those half a second is lost */
-::view-transition {
-  pointer-events: none;
-}
-::view-transition-old(root) {
-  animation: none;
-}
-::view-transition-new(root) {
-  animation: vt-in 260ms ease 140ms both;
-}
-@keyframes vt-in {
-  from {
-    opacity: 0;
-  }
-}
-@keyframes vt-out {
-  to {
-    opacity: 0;
-  }
-}
-
-::view-transition-group(.camera-morph) {
-  animation-duration: 520ms;
-  animation-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
-}
-/* both pictures fill the moving box (no stretching), corners clipped by the box */
-::view-transition-image-pair(.camera-morph) {
-  overflow: clip;
-  border-radius: var(--frame-r);
-  animation: camera-round 520ms cubic-bezier(0.32, 0.72, 0, 1) both;
-}
-::view-transition-old(.camera-morph),
-::view-transition-new(.camera-morph) {
-  height: 100%;
-  object-fit: cover;
-}
-/* the old picture carries the move; the live new one takes over as soon as its video is up
-   (fresh <video>: first frame + its own fade-in), short, so there's little double image */
-::view-transition-old(.camera-morph) {
-  /* if the new video is late, the still eases out at the very end instead of a cut */
-  animation: vt-out 100ms ease 420ms both;
-}
-::view-transition-new(.camera-morph) {
-  animation: vt-in 140ms ease 250ms both;
-}
-/* home panel (square on the left, round on the right) -> the full screen (round all over) */
-@keyframes camera-round {
-  from {
-    border-radius: 0 var(--frame-r) var(--frame-r) 0;
-  }
-}
-/* and back home */
-html:active-view-transition-type(to-home)::view-transition-image-pair(.camera-morph) {
-  animation-name: camera-round-home;
-}
-@keyframes camera-round-home {
-  to {
-    border-radius: 0 var(--frame-r) var(--frame-r) 0;
-  }
-}
-/* no partner to morph from: it just fades in on its spot */
-::view-transition-new(.camera-in) {
-  animation: vt-in 240ms ease 160ms both;
-}
-/* things leaving a page, each paired with an invisible stand-in (Ghost) on the next page.
-   The stand-in's box is where the thing goes; its own picture is empty */
-.ghost {
+/* ---------- the camera between pages ----------
+   One live video for the whole app (CameraLayer), above the pages' backgrounds and under their
+   controls. Pages only mark its spot; it moves and resizes itself, live, the moment you tap */
+.camlayer {
   position: fixed;
+  z-index: 1;
+  overflow: hidden;
+  isolation: isolate;
+  background: #111;
   pointer-events: none;
   opacity: 0;
 }
+.camlayer[data-on] {
+  opacity: 1;
+}
+.camlayer[data-animate] {
+  transition:
+    left 560ms var(--glide),
+    top 560ms var(--glide),
+    width 560ms var(--glide),
+    height 560ms var(--glide),
+    border-radius 560ms var(--glide),
+    opacity 200ms ease;
+}
+/* the camera's picture zooms in step with the move (same time, same curve) */
+.camlayer .video[data-fit="contain"] {
+  transition:
+    opacity 180ms ease,
+    scale 560ms var(--glide);
+}
+.camlayer .video[data-fit-instant] {
+  transition: opacity 180ms ease;
+}
 
-/* home card: slides aside as the camera takes the screen (and back, on Back) */
-.ghost--home-card {
-  top: 14px;
-  bottom: 14px;
-  right: -42px;
-  width: clamp(360px, 29vw, 480px);
+/* pages with the camera: see-through where it is, their controls over it */
+.home,
+.join {
+  z-index: 2;
+  background: transparent;
 }
-::view-transition-group(.card-away) {
-  animation-duration: 380ms;
-  animation-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
+.home__preview {
+  background: transparent;
 }
-::view-transition-old(.card-away) {
-  animation: vt-out 300ms ease both;
+
+/* off to a room: the card slides aside (down on phones) as the camera takes the screen */
+.home[data-leaving] .home__card {
+  animation: card-out 150ms cubic-bezier(0.4, 0, 0.6, 1) both;
 }
-::view-transition-new(.card-away) {
-  animation: vt-in 300ms ease 140ms both;
+.home[data-leaving] .home__controls {
+  animation: fade-out 120ms ease both;
 }
-/* coming home from a call: no partner, it slides in */
-::view-transition-new(.card-in) {
-  animation: card-in 520ms cubic-bezier(0.32, 0.72, 0, 1) 80ms both;
+/* back from a room: it slides back in while the camera settles into its panel */
+.home[data-entering] .home__card {
+  animation: card-in 520ms var(--glide) both;
+}
+.home[data-entering] .home__controls {
+  animation: fade-in 300ms ease 280ms both;
+}
+@keyframes card-out {
+  to {
+    opacity: 0;
+    translate: 56px 0;
+  }
 }
 @keyframes card-in {
   from {
@@ -2591,119 +2628,36 @@ html:active-view-transition-type(to-home)::view-transition-image-pair(.camera-mo
     translate: 56px 0;
   }
 }
-
-/* camera buttons on home: fade where they are, never stretched with the picture */
-.ghost--home-controls {
-  left: 40px;
-  bottom: 40px;
-  width: 1px;
-  height: 48px;
+@keyframes fade-out {
+  to {
+    opacity: 0;
+  }
 }
-::view-transition-old(.fade-away),
-::view-transition-new(.fade-away) {
-  width: auto;
-  height: auto;
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
 }
-::view-transition-group(.fade-away) {
-  animation: none;
-}
-::view-transition-old(.fade-away) {
-  animation: vt-out 160ms ease both;
-}
-
-/* the call screen fades away over home, quickly: the card comes in where the island was */
-.ghost--call-screen {
-  inset: 0;
-}
-::view-transition-old(.call-away) {
-  animation: vt-out 200ms ease both;
-}
-::view-transition-new(.call-away) {
-  animation: none;
-}
-
-/* just its own live layer above the rest, nothing animated by the page change itself */
-.ghost--join-bar {
-  left: 50%;
-  bottom: 0;
-  width: 1px;
-  height: 1px;
-}
-::view-transition-group(.live) {
-  animation: none;
-}
-::view-transition-old(.live) {
-  animation: none;
-  opacity: 0;
-}
-::view-transition-new(.live) {
-  animation: none;
-  width: auto;
-  height: auto;
-}
-
-/* the top island shrinks into its little pill and fades */
-.ghost--top-island {
-  top: max(12px, env(safe-area-inset-top));
-  left: calc(50% - 48px);
-  width: 96px;
-  height: 30px;
-}
-::view-transition-group(.island-away) {
-  animation-duration: 320ms;
-  animation-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
-}
-::view-transition-old(.island-away) {
-  animation: vt-out 220ms ease both;
-}
-::view-transition-new(.island-away) {
-  animation: none;
-}
-
-/* bars and islands of the new page: live, they play their own entrance on top */
-::view-transition-new(.ui-in) {
-  animation: none;
-}
-::view-transition-old(.ui-out) {
-  animation: vt-out 180ms ease both;
-}
-
-/* phones: home is a column (camera on top, card under it). After the rules above so it wins */
 @media (max-width: 760px) {
-  /* stand-ins: the card goes down, the buttons sit on the panel's bottom-left */
-  .ghost--home-card {
-    top: calc(100% - 1px);
-    bottom: auto;
-    left: 10px;
-    right: 10px;
-    width: auto;
-    height: 40dvh;
+  @keyframes card-out {
+    to {
+      opacity: 0;
+      translate: 0 64px;
+    }
   }
-  .ghost--home-controls {
-    left: 20px;
-    bottom: auto;
-    top: calc(max(50dvh, 300px) - 68px);
-  }
-
-  /* back home from a call, the card comes up from below */
   @keyframes card-in {
     from {
       opacity: 0;
-      translate: 0 56px;
+      translate: 0 64px;
     }
   }
+}
 
-  /* the camera morph starts / ends with the phone panel's corners */
-  @keyframes camera-round {
-    from {
-      border-radius: 0 0 var(--frame-r) var(--frame-r);
-    }
-  }
-  @keyframes camera-round-home {
-    to {
-      border-radius: 0 0 var(--frame-r) var(--frame-r);
-    }
-  }
+/* hang up: the call fades away over the camera, which is already gliding home */
+.call[data-leaving] {
+  z-index: 3;
+  pointer-events: none;
+  animation: fade-out 220ms ease both;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2711,12 +2665,8 @@ html:active-view-transition-type(to-home)::view-transition-image-pair(.camera-mo
     --spring: var(--ease-out);
   }
 
-  ::view-transition-group(*),
-  ::view-transition-image-pair(*),
-  ::view-transition-old(*),
-  ::view-transition-new(*) {
-    animation-duration: 1ms !important;
-    animation-delay: 0s !important;
+  .camlayer[data-animate] {
+    transition-duration: 1ms;
   }
 
   .track,

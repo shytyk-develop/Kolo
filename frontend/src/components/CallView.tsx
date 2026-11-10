@@ -1,28 +1,19 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import {
-  addTransitionType,
-  startTransition,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  ViewTransition,
-  type PointerEvent as ReactPointerEvent,
-} from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { flushSync } from "react-dom";
 
 import { useCall } from "@/hooks/useCall";
+import { usePhone } from "@/hooks/usePhone";
 import { type CallStats, useStats } from "@/hooks/useStats";
-import { avatarStyle, initial } from "@/lib/format";
+import { avatarStyle, formatDuration, initial } from "@/lib/format";
 import { callQuality } from "@/lib/quality";
 import { fingerprintFromSdp, safetyCode } from "@/lib/safety";
 import type { Slot } from "@/lib/slot";
 import type { JoinTicket } from "@/lib/types";
 
-import { usePhone } from "@/hooks/usePhone";
-
+import { leaveHome, useCamera } from "./CameraLayer";
 import { CallBar, type CallBarHandle } from "./CallBar";
 import { CallIsland, type CallIslandHandle } from "./CallIsland";
 import {
@@ -50,8 +41,6 @@ interface Props {
   notice: Slot<IslandItem | null>;
   // my own video is on screen: whatever covered it (the join screen) can go
   onShown?: () => void;
-  // the camera's page-change name is free (the join screen that had it is gone)
-  cameraName?: boolean;
 }
 
 interface Drag {
@@ -89,7 +78,7 @@ function halfRect(side: SplitSide) {
 
 const otherSide = (s: SplitSide): SplitSide => (s === "a" ? "b" : "a");
 
-export function CallView({ ticket, media, code, selfName, notice: noticeSlot, onShown, cameraName = true }: Props) {
+export function CallView({ ticket, media, code, selfName, notice: noticeSlot, onShown }: Props) {
   const router = useRouter();
   const call = useCall(ticket, media.stream);
   const [codes, setCodes] = useState<Record<string, string>>({});
@@ -304,10 +293,16 @@ export function CallView({ ticket, media, code, selfName, notice: noticeSlot, on
       );
     } else {
       // nothing on screen to grow from (closed island): it fades in over the old one
-      grow = small.animate([{ opacity: 0, transform: "scale(1.02)" }, { opacity: 1, transform: "scale(1)" }], {
-        duration: 320,
-        easing: "ease-out",
-      });
+      grow = small.animate(
+        [
+          { opacity: 0, transform: "scale(1.02)" },
+          { opacity: 1, transform: "scale(1)" },
+        ],
+        {
+          duration: 320,
+          easing: "ease-out",
+        },
+      );
     }
     // the old one sinks into the shade under it (dims, never moves: no edge ever shows)
     const settle = big.animate([{ opacity: 1 }, { opacity: 0.55 }], {
@@ -477,11 +472,18 @@ export function CallView({ ticket, media, code, selfName, notice: noticeSlot, on
 
   // leaving: a navigation with a type, so the page change can play the "back home" version
   // of the camera morph (or a plain fade when the other person is the big one)
-  const hangUp = () =>
-    startTransition(() => {
-      addTransitionType("to-home");
-      router.push("/");
-    });
+  // leaving: the call fades out and the camera glides to its home panel, both on the tap.
+  // I was the whole screen: the camera takes my place under the fading call and goes from
+  // there; otherwise it appears on its home spot
+  const cam = useCamera();
+  const [leaving, setLeaving] = useState(false);
+  const hangUp = () => {
+    const el = root.current;
+    if (el) el.dataset.leaving = "";
+    // nothing more to say: the top island folds up on the way out
+    setLeaving(true);
+    leaveHome(cam, router, selfBigRef.current ? "full" : "hidden");
+  };
 
   const copyLink = async () => {
     try {
@@ -581,18 +583,22 @@ export function CallView({ ticket, media, code, selfName, notice: noticeSlot, on
     }, 560);
   };
 
-  const notice = callNotice({
-    status: call.status,
-    error: call.error,
-    lobby: isHost ? call.lobby : [],
-    remote: remote ? { name: remoteName, connected } : null,
-    code,
-    copied,
-    onCopy: copyLink,
-    onAdmit: (id) => call.send({ type: "admit", peer_id: id }),
-    onDeny: (id) => call.send({ type: "deny", peer_id: id }),
-    onHome: hangUp,
-  });
+  const notice = leaving
+    ? null
+    : callNotice({
+        status: call.status,
+        error: call.error,
+        lobby: isHost ? call.lobby : [],
+        remote: remote ? { name: remoteName, connected } : null,
+        code,
+        copied,
+        onCopy: copyLink,
+        onAdmit: (id) => call.send({ type: "admit", peer_id: id }),
+        onDeny: (id) => call.send({ type: "deny", peer_id: id }),
+        onHome: hangUp,
+        // phones have no side island with the clock: the top island shows it once connected
+        timer: phone && connected ? connectedAt : null,
+      });
 
   // every render: the island shows what the call says right now (same frame, before paint)
   useLayoutEffect(() => {
@@ -602,151 +608,145 @@ export function CallView({ ticket, media, code, selfName, notice: noticeSlot, on
   const remoteVideo = Boolean(remote?.stream && remote.video);
   // I'm the whole screen: my video can morph into the home screen's camera on the way out
   const selfBig = !splitOn && target === 1 && !handoff;
+  const selfBigRef = useRef(selfBig);
+  selfBigRef.current = selfBig;
 
   const sideOf = (who: Who) => (splitOn ? (who === "self" ? splitOn : otherSide(splitOn)) : undefined);
 
   return (
-    // leaving the call: the whole call screen is one layer that fades away over the home screen
-    // (pairs with a stand-in there, see Ghost)
-    <ViewTransition name="call-screen" share="call-away" default="none">
-      <main
-        ref={root}
-        className="call"
-        data-phone={phone || undefined}
-        data-big={target === 0 ? "remote" : "self"}
-        data-split={splitOn ?? undefined}
-        data-staging={staging ?? undefined}
-        data-testid="call"
+    // data-leaving (set on hang up): the call fades away over the camera gliding home
+    <main
+      ref={root}
+      className="call"
+      data-phone={phone || undefined}
+      data-big={target === 0 ? "remote" : "self"}
+      data-split={splitOn ?? undefined}
+      data-staging={staging ?? undefined}
+      data-testid="call"
+    >
+      <div
+        className="call__stage"
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerEnd}
+        onPointerCancel={onPointerEnd}
       >
-        <div
-          className="call__stage"
-          onPointerDown={onPointerDown}
-          onPointerMove={onPointerMove}
-          onPointerUp={onPointerEnd}
-          onPointerCancel={onPointerEnd}
-        >
-          <div className="track track--main">
-            <div
-              className="slide"
-              data-testid="remote-tile"
-              data-state={remote?.state}
-              data-side={sideOf("remote")}
-              data-handoff={handoff === "remote" || undefined}
-            >
-              <Video stream={remote?.stream ?? null} fit={splitOn ? "cover" : "smart"} />
-              <div className="nocam" data-on={!remoteVideo || undefined}>
-                <span className="avatar avatar--xl" style={avatarStyle(remote ? remoteName : "")}>
-                  {initial(remote ? remoteName : "") ?? <UserIcon size={40} />}
-                </span>
-              </div>
-              <span className="slide__name">{remoteName}</span>
+        <div className="track track--main">
+          <div
+            className="slide"
+            data-testid="remote-tile"
+            data-state={remote?.state}
+            data-side={sideOf("remote")}
+            data-handoff={handoff === "remote" || undefined}
+          >
+            <Video stream={remote?.stream ?? null} fit={splitOn ? "cover" : "smart"} />
+            <div className="nocam" data-on={!remoteVideo || undefined}>
+              <span className="avatar avatar--xl" style={avatarStyle(remote ? remoteName : "")}>
+                {initial(remote ? remoteName : "") ?? <UserIcon size={40} />}
+              </span>
             </div>
-            {/* the name stays put once it's free (renaming confuses react's bookkeeping); whether the
+            <span className="slide__name">{remoteName}</span>
+          </div>
+          {/* the name stays put once it's free (renaming confuses react's bookkeeping); whether the
               camera morphs home is the share class: only when I'm the whole screen */}
-            <ViewTransition
-              name={cameraName ? "self-camera" : undefined}
-              share={selfBig ? "camera-morph" : "none"}
-              default="none"
-            >
-              <div
-                className="slide slide--2"
-                data-testid="local-tile"
-                data-side={sideOf("self")}
-                data-handoff={handoff === "self" || undefined}
-              >
-                <Video stream={media.stream} mirror fit={splitOn ? "cover" : "smart"} />
-                <div className="nocam" data-on={!media.videoOn || undefined}>
-                  <span className="avatar avatar--xl" style={avatarStyle(selfName)}>
-                    {initial(selfName) ?? <UserIcon size={40} />}
-                  </span>
-                </div>
-                <span className="slide__name">You</span>
-              </div>
-            </ViewTransition>
+
+          <div
+            className="slide slide--2"
+            data-testid="local-tile"
+            data-side={sideOf("self")}
+            data-handoff={handoff === "self" || undefined}
+          >
+            <Video stream={media.stream} mirror fit={splitOn ? "cover" : "smart"} />
+            <div className="nocam" data-on={!media.videoOn || undefined}>
+              <span className="avatar avatar--xl" style={avatarStyle(selfName)}>
+                {initial(selfName) ?? <UserIcon size={40} />}
+              </span>
+            </div>
+            <span className="slide__name">You</span>
           </div>
         </div>
+      </div>
 
-        {remotes.map((r) => (
-          <RemoteAudio key={r.peer.id} stream={r.stream} />
-        ))}
+      {remotes.map((r) => (
+        <RemoteAudio key={r.peer.id} stream={r.stream} />
+      ))}
 
-        {/* where the tile goes when dropped: half of the screen */}
-        {/* split view on offer: both halves, the one under the tile lights up, that's where it goes */}
-        {(["a", "b"] as const).map((side) => (
-          <div
-            key={side}
-            className="splitzone"
-            data-side={side}
-            data-shown={splitHover ? "" : undefined}
-            data-active={splitHover?.side === side || undefined}
-            aria-hidden
-          >
-            <span className="splitzone__hint">
-              <SplitIcon />
-              Release here
-            </span>
-          </div>
-        ))}
+      {/* where the tile goes when dropped: half of the screen */}
+      {/* split view on offer: both halves, the one under the tile lights up, that's where it goes */}
+      {(["a", "b"] as const).map((side) => (
+        <div
+          key={side}
+          className="splitzone"
+          data-side={side}
+          data-shown={splitHover ? "" : undefined}
+          data-active={splitHover?.side === side || undefined}
+          aria-hidden
+        >
+          <span className="splitzone__hint">
+            <SplitIcon />
+            Release here
+          </span>
+        </div>
+      ))}
 
-        <StatsPanel show={statsOpen && Boolean(remote)} stats={stats} quality={quality} safety={safety} />
+      <StatsPanel show={statsOpen && Boolean(remote)} stats={stats} quality={quality} safety={safety} />
 
-        <FloatingPreview
-          ref={pipHandle}
-          rect={pip}
+      <FloatingPreview
+        ref={pipHandle}
+        rect={pip}
+        media={media}
+        selfName={selfName}
+        remote={remote}
+        remoteName={remoteName}
+        onChange={setPip}
+        onDockRequest={dockIn}
+        onSwap={swap}
+        dockTarget={() => root.current?.querySelector(phone ? ".cbar" : ".ci")?.getBoundingClientRect() ?? null}
+        onDockHover={setDockHover}
+        canSplit={hasRemote}
+        onSplitHover={setSplitHover}
+        onSplitRequest={splitIn}
+        phone={phone}
+      />
+
+      {phone ? (
+        <CallBar
+          ref={barHandle}
           media={media}
           selfName={selfName}
           remote={remote}
           remoteName={remoteName}
-          onChange={setPip}
-          onDockRequest={dockIn}
+          onToggleAudio={toggleAudio}
+          onToggleVideo={toggleVideo}
+          onHangUp={hangUp}
           onSwap={swap}
-          dockTarget={() => root.current?.querySelector(phone ? ".cbar" : ".ci")?.getBoundingClientRect() ?? null}
-          onDockHover={setDockHover}
-          canSplit={hasRemote}
-          onSplitHover={setSplitHover}
-          onSplitRequest={splitIn}
-          phone={phone}
+          onDetach={detachFromBar}
+          out={Boolean(pip)}
+          receiving={dockHover}
+          split={Boolean(splitOn)}
+          onUnsplit={() => setSplit(null)}
+          hidden={barHidden}
         />
-
-        {phone ? (
-          <CallBar
-            ref={barHandle}
-            media={media}
-            selfName={selfName}
-            remote={remote}
-            remoteName={remoteName}
-            onToggleAudio={toggleAudio}
-            onToggleVideo={toggleVideo}
-            onHangUp={hangUp}
-            onSwap={swap}
-            onDetach={detachFromBar}
-            out={Boolean(pip)}
-            receiving={dockHover}
-            split={Boolean(splitOn)}
-            onUnsplit={() => setSplit(null)}
-            hidden={barHidden}
-          />
-        ) : (
-          <CallIsland
-            ref={islandHandle}
-            media={media}
-            selfName={selfName}
-            remote={remote}
-            connectedAt={connectedAt}
-            quality={quality.bars}
-            statsOpen={statsOpen}
-            onToggleStats={() => setStatsOpen((v) => !v)}
-            onSwap={swap}
-            onToggleAudio={toggleAudio}
-            onToggleVideo={toggleVideo}
-            onHangUp={hangUp}
-            undocked={Boolean(splitOn) || (Boolean(pip) && !dockHover)}
-            onDetach={detach}
-            receiving={dockHover}
-          />
-        )}
-      </main>
-    </ViewTransition>
+      ) : (
+        <CallIsland
+          ref={islandHandle}
+          media={media}
+          selfName={selfName}
+          remote={remote}
+          connectedAt={connectedAt}
+          quality={quality.bars}
+          statsOpen={statsOpen}
+          onToggleStats={() => setStatsOpen((v) => !v)}
+          onSwap={swap}
+          onToggleAudio={toggleAudio}
+          onToggleVideo={toggleVideo}
+          onHangUp={hangUp}
+          undocked={Boolean(splitOn) || (Boolean(pip) && !dockHover)}
+          onDetach={detach}
+          receiving={dockHover}
+        />
+      )}
+    </main>
   );
 }
 
@@ -813,6 +813,8 @@ interface NoticeInput {
   onAdmit: (id: string) => void;
   onDeny: (id: string) => void;
   onHome: () => void;
+  // call start (ms) when the island should show the call clock, else null
+  timer: number | null;
 }
 
 // what the top island says, most important first
@@ -916,5 +918,33 @@ function callNotice(n: NoticeInput): IslandItem | null {
       ),
     };
   }
+  // nothing to say: on a phone, how long the call has been going
+  if (n.timer) {
+    return {
+      key: "timer",
+      node: (
+        <span className="notice notice--timer" data-testid="call-timer">
+          <i className="pulse" />
+          <Elapsed since={n.timer} />
+        </span>
+      ),
+    };
+  }
   return null;
+}
+
+// time since the call connected, ticking on its own (nothing else re-renders every second)
+function Elapsed({ since }: { since: number }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    // on the second boundaries of the call, not of the clock
+    let id: ReturnType<typeof setTimeout>;
+    const tick = () => {
+      setNow(Date.now());
+      id = setTimeout(tick, 1000 - ((Date.now() - since) % 1000));
+    };
+    id = setTimeout(tick, 1000 - ((Date.now() - since) % 1000));
+    return () => clearTimeout(id);
+  }, [since]);
+  return <span className="notice__time">{formatDuration(now - since)}</span>;
 }

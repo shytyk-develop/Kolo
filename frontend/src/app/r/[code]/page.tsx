@@ -1,16 +1,15 @@
 "use client";
 
-import { useParams } from "next/navigation";
-import { useEffect, useRef, useState, ViewTransition } from "react";
+import { useParams, useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
 
 import { CallView } from "@/components/CallView";
-import { Ghost } from "@/components/Ghost";
-import { ArrowIcon, CamGlyph, Spinner, UserIcon } from "@/components/Icons";
+import { leaveHome, useCamera, useCameraSlot } from "@/components/CameraLayer";
+import { ArrowIcon, BackIcon, CamGlyph, Spinner, UserIcon } from "@/components/Icons";
 import { Island } from "@/components/Island";
 import { MicMeter } from "@/components/LevelBars";
 import { useMedia } from "@/components/MediaProvider";
 import { MorphIsland, type IslandItem } from "@/components/MorphIsland";
-import { Video } from "@/components/Video";
 import { ApiError, api, hostSecrets } from "@/lib/api";
 import { avatarStyle, initial } from "@/lib/format";
 import { createSlot, type Slot, useSlot } from "@/lib/slot";
@@ -23,6 +22,18 @@ const JOIN_LEAVE_MS = 420;
 export default function RoomPage() {
   const { code } = useParams<{ code: string }>();
   const media = useMedia();
+  const router = useRouter();
+  const cam = useCamera();
+  // the camera's spot on this screen: all of it (the picture is the app-wide camera, under this)
+  const stage = useRef<HTMLDivElement>(null);
+  useCameraSlot(stage, "smart");
+  // on the way out: the bar sinks, the island folds up, the camera glides home
+  const [exiting, setExiting] = useState(false);
+  // nowhere to go from here (no such meeting, an error): back home, the camera glides back
+  const goHome = () => {
+    setExiting(true);
+    leaveHome(cam, router, "here");
+  };
   const { start } = media;
   const [room, setRoom] = useState<RoomPublic | null>(null);
   const [name, setName] = useState("");
@@ -35,12 +46,6 @@ export default function RoomPage() {
   // so the camera never blinks; then it's taken away
   const [callShown, setCallShown] = useState(false);
   const [joinGone, setJoinGone] = useState(false);
-  // the camera's page-change name moves to the call only after the join screen is really gone
-  // (a commit later), two elements may never hold it at once
-  const [cameraFree, setCameraFree] = useState(false);
-  useEffect(() => {
-    if (joinGone) setCameraFree(true);
-  }, [joinGone]);
   // what the call wants the top island to say; one island for both screens, it just morphs
   const [callNotice] = useState(() => createSlot<IslandItem | null>());
 
@@ -87,11 +92,13 @@ export default function RoomPage() {
   }, [inCall]);
   useEffect(() => {
     if (!callShown) return;
+    // the call's own picture is up, exactly the same as the camera's: the camera steps aside
+    cam.show(false);
     const id = setTimeout(() => setJoinGone(true), JOIN_LEAVE_MS);
     return () => clearTimeout(id);
-  }, [callShown]);
+  }, [callShown, cam]);
 
-  const notice = topNotice({ code, room, isHost, error: error ?? media.error });
+  const notice = topNotice({ code, room, isHost, error: error ?? media.error, onBack: goHome });
   const ready = Boolean(room && media.stream && !joining);
 
   return (
@@ -104,94 +111,88 @@ export default function RoomPage() {
           selfName={name.trim()}
           notice={callNotice}
           onShown={() => setCallShown(true)}
-          cameraName={cameraFree}
         />
       )}
       {!joinGone && (
-        <main className="join" data-leaving={inCall || undefined} data-covered={callShown || undefined} inert={inCall}>
-          {/* the camera morphs in from the home screen. Keeps its name until it's removed, then the
-              call's own video takes it over (renaming instead would confuse react's bookkeeping) */}
-          <ViewTransition name="self-camera" share="camera-morph" enter="camera-in" default="none">
-            <div className="join__stage">
-              <Video stream={media.stream} mirror fit="smart" />
-              <div className="nocam" data-on={!media.stream || !media.videoOn || undefined}>
-                <span className="avatar avatar--xl" style={avatarStyle(name)}>
-                  {initial(name) ?? <UserIcon size={40} />}
-                </span>
-              </div>
+        <main
+          className="join"
+          data-leaving={inCall || exiting || undefined}
+          data-covered={callShown || undefined}
+          inert={inCall || exiting}
+        >
+          {/* where the camera is on this screen: all of it */}
+          <div ref={stage} className="join__stage">
+            <div className="nocam" data-on={!media.stream || !media.videoOn || undefined}>
+              <span className="avatar avatar--xl" style={avatarStyle(name)}>
+                {initial(name) ?? <UserIcon size={40} />}
+              </span>
             </div>
-          </ViewTransition>
+          </div>
 
-          {/* own layers in a page change: drawn over the camera morph, they play their own entrance */}
-          <ViewTransition name="join-bar" share="live" enter="ui-in" default="none">
-            <Island edge="bottom" className="joinbar">
-              <form
-                className="joinbar__form"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  // no name yet: shake the field instead of a grey button
-                  if (!name.trim()) {
-                    nameField.current?.querySelector("input")?.focus();
-                    nameField.current?.animate(SHAKE, { duration: 420, easing: "ease-out" });
-                    return;
-                  }
-                  if (ready) void join();
-                }}
+          <Island edge="bottom" className="joinbar">
+            <form
+              className="joinbar__form"
+              onSubmit={(e) => {
+                e.preventDefault();
+                // no name yet: shake the field instead of a grey button
+                if (!name.trim()) {
+                  nameField.current?.querySelector("input")?.focus();
+                  nameField.current?.animate(SHAKE, { duration: 420, easing: "ease-out" });
+                  return;
+                }
+                if (ready) void join();
+              }}
+            >
+              <label className="field" ref={nameField}>
+                <UserIcon size={16} />
+                <input
+                  placeholder="Your name"
+                  value={name}
+                  maxLength={40}
+                  autoComplete="name"
+                  onChange={(e) => setName(e.target.value)}
+                  data-testid="name-input"
+                />
+              </label>
+              <span className="joinbar__sep" aria-hidden />
+              <button
+                type="button"
+                className="round"
+                data-off={!media.audioOn || undefined}
+                onClick={media.toggleAudio}
+                disabled={!media.stream}
+                aria-label={media.audioOn ? "Turn off microphone" : "Turn on microphone"}
               >
-                <label className="field" ref={nameField}>
-                  <UserIcon size={16} />
-                  <input
-                    placeholder="Your name"
-                    value={name}
-                    maxLength={40}
-                    autoComplete="name"
-                    onChange={(e) => setName(e.target.value)}
-                    data-testid="name-input"
-                  />
-                </label>
-                <span className="joinbar__sep" aria-hidden />
-                <button
-                  type="button"
-                  className="round"
-                  data-off={!media.audioOn || undefined}
-                  onClick={media.toggleAudio}
-                  disabled={!media.stream}
-                  aria-label={media.audioOn ? "Turn off microphone" : "Turn on microphone"}
-                >
-                  <MicMeter stream={media.stream} on={media.audioOn} />
-                </button>
-                <button
-                  type="button"
-                  className="round"
-                  data-off={!media.videoOn || undefined}
-                  onClick={media.toggleVideo}
-                  disabled={!media.stream}
-                  aria-label={media.videoOn ? "Turn off camera" : "Turn on camera"}
-                >
-                  <CamGlyph off={!media.videoOn} />
-                </button>
-                <button className="joinbar__go" type="submit" disabled={!ready} data-testid="join-button">
-                  {/* same width while joining, the island doesn't jump */}
-                  Join
-                  <span className="joinbar__arrow">
-                    {/* keyed: the new icon pops in instead of a hard swap */}
-                    {joining || inCall ? (
-                      <Spinner key="busy" size={16} className="icon-in" />
-                    ) : (
-                      <ArrowIcon key="go" size={18} strokeWidth={2.2} className="icon-in" />
-                    )}
-                  </span>
-                </button>
-              </form>
-            </Island>
-          </ViewTransition>
+                <MicMeter stream={media.stream} on={media.audioOn} />
+              </button>
+              <button
+                type="button"
+                className="round"
+                data-off={!media.videoOn || undefined}
+                onClick={media.toggleVideo}
+                disabled={!media.stream}
+                aria-label={media.videoOn ? "Turn off camera" : "Turn on camera"}
+              >
+                <CamGlyph off={!media.videoOn} />
+              </button>
+              <button className="joinbar__go" type="submit" disabled={!ready} data-testid="join-button">
+                {/* same width while joining, the island doesn't jump */}
+                Join
+                <span className="joinbar__arrow">
+                  {/* keyed: the new icon pops in instead of a hard swap */}
+                  {joining || inCall ? (
+                    <Spinner key="busy" size={16} className="icon-in" />
+                  ) : (
+                    <ArrowIcon key="go" size={18} strokeWidth={2.2} className="icon-in" />
+                  )}
+                </span>
+              </button>
+            </form>
+          </Island>
         </main>
       )}
-      <RoomIsland slot={callNotice} inCall={inCall} fallback={notice} />
-      {/* stand-ins for the home screen's card and camera buttons, for page changes both ways:
-          they go aside when you come here, and come back from here when you go home */}
-      <Ghost name="home-card" kind="card-away" shift="aside" />
-      <Ghost name="home-controls" kind="fade-away" />
+      {/* leaving for home: nothing more to say, the island folds up on the way */}
+      <RoomIsland slot={callNotice} inCall={inCall} fallback={exiting ? null : notice} />
     </>
   );
 }
@@ -208,11 +209,7 @@ function RoomIsland({
   fallback: IslandItem | null;
 }) {
   const fromCall = useSlot(slot);
-  return (
-    <ViewTransition name="top-island" share="island-away" enter="ui-in" default="none">
-      <MorphIsland item={inCall && fromCall !== undefined ? fromCall : fallback} />
-    </ViewTransition>
-  );
+  return <MorphIsland item={inCall && fromCall !== undefined ? fromCall : fallback} />;
 }
 
 const SHAKE = [0, -5, 5, -5, 5, 0].map((x) => ({ transform: `translateX(${x}px)` }));
@@ -227,14 +224,28 @@ function topNotice({
   room,
   isHost,
   error,
+  onBack,
 }: {
   code: string;
   room: RoomPublic | null;
   isHost: boolean;
   error: string | null;
+  onBack: () => void;
 }): IslandItem | null {
+  // something's wrong (no such meeting...): say it, with the way back right there
   if (error) {
-    return { key: `error:${error}`, tone: "danger", node: <span className="pill-text">{error}</span> };
+    return {
+      key: `error:${error}`,
+      tone: "danger",
+      node: (
+        <span className="notice notice--back">
+          <button className="notice__back" onClick={onBack} aria-label="Back to home" data-testid="back-home">
+            <BackIcon size={18} strokeWidth={2.2} />
+          </button>
+          <span className="notice__text">{error}</span>
+        </span>
+      ),
+    };
   }
   if (!room) return null;
   const who = inviterOf(room);

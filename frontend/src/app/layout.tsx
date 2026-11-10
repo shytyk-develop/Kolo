@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 
+import { CameraLayer } from "@/components/CameraLayer";
 import { MediaProvider } from "@/components/MediaProvider";
 
 import "./globals.css";
@@ -19,7 +20,9 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html lang="en">
       <body>
-        <MediaProvider>{children}</MediaProvider>
+        <MediaProvider>
+          <CameraLayer>{children}</CameraLayer>
+        </MediaProvider>
       </body>
     </html>
   );

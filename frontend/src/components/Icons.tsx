@@ -68,6 +68,13 @@ export const ArrowIcon = (p: IconProps) => (
   </Svg>
 );
 
+// back: a chevron pointing left
+export const BackIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M15 5l-7 7 7 7" />
+  </Svg>
+);
+
 export const PlusIcon = (p: IconProps) => (
   <Svg {...p}>
     <path d="M12 4v16M4 12h16" />

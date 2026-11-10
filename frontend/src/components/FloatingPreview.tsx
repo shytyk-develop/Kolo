@@ -39,7 +39,7 @@ export const splitVertical = () => window.innerHeight > window.innerWidth;
 
 // corner radius of the big videos, from the css (smaller on phones)
 export const frameRadius = () =>
-  parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--frame-r")) || 28;
+  parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--video-r")) || 0;
 
 // split view starts at the left edge (the top one on a tall screen): push the tile into it
 // and hold. It has to be a clear push (well past the edge), held for a moment, and not into

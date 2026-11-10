@@ -10,6 +10,11 @@ interface Props {
   // they are far apart (a wide video on a tall phone) shows the whole picture over a blurred
   // copy of itself, so nobody is cut in half
   fit?: "cover" | "smart";
+  // the size the box is heading to, when it's being animated there (the camera between
+  // pages): the fit is worked out for where it ends up and changes along with the move, in
+  // one go, instead of after it. With how long that change takes (ms)
+  box?: { w: number; h: number } | null;
+  zoomMs?: number;
 }
 
 // cropping more than this much of the picture is too much: show it whole instead
@@ -19,7 +24,14 @@ const MAX_CROP = 0.22;
 const SIDE_CROP = 0.45;
 
 // always muted: sound goes through one <audio>, or copies of the same video would play it twice
-export const Video = memo(function Video({ stream, mirror, className, fit = "cover" }: Props) {
+export const Video = memo(function Video({
+  stream,
+  mirror,
+  className,
+  fit = "cover",
+  box = null,
+  zoomMs = 440,
+}: Props) {
   const ref = useRef<HTMLVideoElement>(null);
   const backdrop = useRef<HTMLVideoElement>(null);
   // hidden until the first frame, so a new <video> fades in instead of flashing black
@@ -52,12 +64,13 @@ export const Video = memo(function Video({ stream, mirror, className, fit = "cov
     let leave: ReturnType<typeof setTimeout> | undefined;
     let later: ReturnType<typeof setTimeout> | undefined;
     let raf = 0;
-    // how much of the picture "fill the box" keeps (1 = same shape)
-    const shape = () => {
+    // how much of the picture "fill the box" keeps (1 = same shape): for the box as it is now,
+    // or for where it's going (target)
+    const shape = (target = false) => {
       const vw = el.videoWidth;
       const vh = el.videoHeight;
-      const bw = el.clientWidth;
-      const bh = el.clientHeight;
+      const bw = target && box ? box.w : el.clientWidth;
+      const bh = target && box ? box.h : el.clientHeight;
       if (!vw || !vh || !bw || !bh) return null;
       return Math.min(vw / vh / (bw / bh), bw / bh / (vw / vh));
     };
@@ -65,10 +78,10 @@ export const Video = memo(function Video({ stream, mirror, className, fit = "cov
     const toCover = () => {
       const v = viewRef.current;
       if (!v.whole) return;
-      const f = shape();
+      const f = shape(true);
       setView({ whole: true, zoom: f ? 1 / f : v.zoom, instant: false });
       clearTimeout(leave);
-      leave = setTimeout(() => setView({ whole: false, zoom: 1, instant: false }), 440);
+      leave = setTimeout(() => setView({ whole: false, zoom: 1, instant: false }), zoomMs);
     };
     // to the whole picture: switch at the zoom that looks like cover, then zoom out to z
     const toWhole = (z: number, cover: number, initial: boolean) => {
@@ -90,18 +103,22 @@ export const Video = memo(function Video({ stream, mirror, className, fit = "cov
       );
     };
     const decide = () => {
-      if (el.closest("[data-staging], [data-sliding], [data-swapping]")) {
+      // a box moved by someone else (a split change, a swipe, a swap): once it has settled.
+      // A box with a known target doesn't wait, it changes along with the move
+      if (!box && el.closest("[data-staging], [data-sliding], [data-swapping]")) {
         clearTimeout(later);
         later = setTimeout(decide, 150);
         return;
       }
-      const f = shape();
-      if (!f) return;
+      const f = shape(true);
+      const now = shape();
+      if (!f || !now) return;
+      // the first decision just applies
       const initial = !decided.current;
       decided.current = true;
       // cropping that much is fine (or asked to fill): fill the box
       if (fit !== "smart" || 1 - f <= MAX_CROP) return toCover();
-      toWhole(Math.min(1 / f, 1 / (1 - SIDE_CROP)), 1 / f, initial);
+      toWhole(Math.min(1 / f, 1 / (1 - SIDE_CROP)), 1 / now, initial);
     };
     decide();
     el.addEventListener("resize", decide);
@@ -116,7 +133,7 @@ export const Video = memo(function Video({ stream, mirror, className, fit = "cov
       clearTimeout(later);
       cancelAnimationFrame(raf);
     };
-  }, [fit]);
+  }, [fit, box?.w, box?.h, zoomMs]);
 
   // the blurred copy behind a whole picture
   useLayoutEffect(() => {
