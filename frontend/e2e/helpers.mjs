@@ -1,4 +1,5 @@
-// shared bits for the e2e scripts: two real chromium "people" with a fake camera
+// shared bits for the e2e scripts: two real chromium "people" with a fake camera.
+// Needs the real backend on :8000 and the frontend on :3000 (see README)
 import { chromium } from "playwright";
 
 export const WEB = process.env.WEB_URL ?? "http://localhost:3000";
@@ -20,18 +21,53 @@ export async function person(browser, name) {
   return page;
 }
 
+// first time only: the home screen asks for a name
+async function answerName(page, name) {
+  const field = page.getByTestId("name-sheet-input");
+  // shows after the room or code checks out, so give it a moment
+  if (await field.waitFor({ state: "visible", timeout: 5000 }).then(() => true, () => false)) {
+    await field.fill(name);
+    await page.getByTestId("name-sheet-save").click();
+  }
+}
+
+/** Home → New meeting → Instant meeting → "Room is ready". Returns the room's code and link. */
+export async function createRoom(page, name, { lobby = false } = {}) {
+  // a fresh entry: a reload of "/" would bring back the screen that was open
+  await page.goto(`${WEB}/?new`);
+  await page.getByTestId("new-meeting").click();
+  await page.getByTestId("instant-meeting").click();
+  await answerName(page, name);
+  const code = (await page.getByTestId("room-code").innerText({ timeout: 10_000 })).trim();
+  if (!/^[a-z]{3}-[a-z]{4}-[a-z]{3}$/.test(code)) throw new Error(`Unexpected room code "${code}"`);
+  if (lobby) {
+    const toggle = page.getByTestId("lobby-toggle").getByRole("switch");
+    await toggle.click();
+    // the room's setting on the server, not just the switch
+    await page.waitForFunction(() => document.querySelector('[data-testid="lobby-toggle"] [role=switch]')?.getAttribute("aria-checked") === "true");
+    await page.waitForFunction(() => !document.querySelector('[data-testid="lobby-toggle"] [role=switch]')?.hasAttribute("disabled"));
+  }
+  return { code, url: `${WEB}/r/${code}` };
+}
+
+/** "Join now" on "Room is ready": the call, or my waiting room if it's on. */
+export async function hostJoins(page) {
+  await page.getByTestId("join-now").click();
+}
+
+/** A guest with the link: the call page's own join screen. */
 export async function joinAs(page, url, name) {
   if (url) await page.goto(url);
   await page.getByTestId("name-input").fill(name);
   await page.getByTestId("join-button").click();
 }
 
-export async function createRoom(page, { lobby = false } = {}) {
+/** A guest with the code: typed on the home screen. */
+export async function joinWithCode(page, code, name) {
   await page.goto(WEB);
-  if (lobby) await page.getByTestId("lobby-checkbox").check();
-  await page.getByTestId("create-room").click();
-  await page.waitForURL(/\/r\/[a-z]{3}-[a-z]{4}-[a-z]{3}$/);
-  return page.url();
+  await page.getByTestId("code-input").fill(code);
+  await page.getByTestId("code-submit").click();
+  await answerName(page, name);
 }
 
 export async function waitConnected(page, who) {
@@ -63,4 +99,14 @@ export async function safetyCode(page) {
     timeout: 10_000,
   });
   return (await code.innerText()).trim();
+}
+
+/** Leave the call from the island (wide screens). */
+export async function hangUp(page) {
+  await page.getByTestId("call-island").hover();
+  await page.getByTestId("leave").first().click();
+}
+
+export async function shotOnFail(browser, name) {
+  await Promise.all(browser.contexts().map((c, i) => c.pages()[0]?.screenshot({ path: `e2e/${name}-fail-${i}.png` })));
 }
