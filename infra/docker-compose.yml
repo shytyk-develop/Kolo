@@ -31,18 +31,19 @@ services:
       KOLO_REDIS_URL: redis://redis:6379/0
       KOLO_JWT_SECRET: ${KOLO_JWT_SECRET:?set KOLO_JWT_SECRET in infra/.env}
       KOLO_TURN_SECRET: ${KOLO_TURN_SECRET:?set KOLO_TURN_SECRET in infra/.env}
-      KOLO_TURN_URLS: '["turn:${PUBLIC_HOST:-localhost}:3478?transport=udp","turn:${PUBLIC_HOST:-localhost}:3478?transport=tcp"]'
-      KOLO_CORS_ORIGINS: '["http://localhost:3000"]'
-      KOLO_PUBLIC_URL: ${KOLO_PUBLIC_URL:-http://localhost:3000}
+      # no TURN: only public STUN Cloudflare
+      KOLO_TURN_URLS: '["stun:stun.cloudflare.com:3478"]'
+      KOLO_CORS_ORIGINS: '["http://localhost:3000","https://kolo-black.vercel.app"]'
+      KOLO_PUBLIC_URL: ${KOLO_PUBLIC_URL:-https://kolo-black.vercel.app}
       # join_url uses frontend_url
-      KOLO_FRONTEND_URL: ${KOLO_PUBLIC_URL:-http://localhost:3000}
+      KOLO_FRONTEND_URL: ${KOLO_PUBLIC_URL:-https://kolo-black.vercel.app}
     depends_on:
       postgres: {condition: service_healthy}
 
   api:
     build: ../backend
     environment: *api-env
-    ports: ["8000:8000"]
+    ports: ["127.0.0.1:8000:8000"]
     depends_on:
       migrate: {condition: service_completed_successfully}
       redis: {condition: service_healthy}

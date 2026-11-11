@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { wsUrl } from "@/lib/api";
@@ -24,9 +25,10 @@ export interface ChatLine {
 
 export type CallStatus = "connecting" | "lobby" | "in-call" | "reconnecting" | "denied" | "ended" | "error";
 
-// reconnect pauses: 1, 2, 4, 8, 8, 8 s
-const MAX_RETRIES = 6;
-const retryDelay = (attempt: number) => Math.min(1000 * 2 ** attempt, 8000);
+// short window for a wifi blip (~4.5 s total), then the call ends
+const RETRY_DELAYS = [1000, 1500, 2000];
+// 1001 = going away, 1012 = server stopped/restarted: end the call right away
+const SERVER_GONE = new Set([1001, 1012]);
 
 const CLOSE_ERRORS: Record<number, string> = {
   4401: "The link has expired, join again",
@@ -38,6 +40,7 @@ const CLOSE_ERRORS: Record<number, string> = {
 
 /** Everything about the call: signaling, a connection per person, chat, lobby. */
 export function useCall(ticket: JoinTicket | null, localStream: MediaStream | null) {
+  const router = useRouter();
   const [status, setStatus] = useState<CallStatus>("connecting");
   const [me, setMe] = useState<Peer | null>(null);
   const [remotes, setRemotes] = useState<Record<string, RemoteParticipant>>({});
@@ -156,18 +159,40 @@ export function useCall(ticket: JoinTicket | null, localStream: MediaStream | nu
       }
     };
 
-    const onClose = (code: number) => {
+    // the server is gone: close every peer connection and go home with a reason
+    const leave = (reason: "server" | "lost") => {
+      stopped = true;
+      clearTimeout(retryTimer);
+      dropAll();
+      setStatus("ended");
+      try {
+        // same flag as a normal hang-up: the home card slides back in
+        sessionStorage.setItem("kolo:back-home", "1");
+      } catch {}
+      router.replace(`/?ended=${reason}`);
+    };
+
+    const onClose = (code: number, reason: string) => {
       if (stopped) return;
-      // 1000 = normal, 4xxx = server said no for good, retrying won't help
-      const final = code === 1000 || (code >= 4000 && code < 5000);
-      if (final || attempt >= MAX_RETRIES) {
-        setStatus((prev) => (prev === "denied" ? prev : code === 1000 ? "ended" : "error"));
-        setError(CLOSE_ERRORS[code] ?? (final ? null : "Lost connection to the server"));
+      console.info("signaling closed", code, reason);
+
+      if (SERVER_GONE.has(code)) {
+        leave("server");
         return;
       }
-      // network drop, server restart, 1013 = try again later
+      // 1000 = normal, 4xxx = server said no for good, retrying won't help
+      if (code === 1000 || (code >= 4000 && code < 5000)) {
+        setStatus((prev) => (prev === "denied" ? prev : code === 1000 ? "ended" : "error"));
+        setError(CLOSE_ERRORS[code] ?? null);
+        return;
+      }
+      // network drop or dead server: a few quick tries, then give up
+      if (attempt >= RETRY_DELAYS.length) {
+        leave("lost");
+        return;
+      }
       setStatus("reconnecting");
-      retryTimer = setTimeout(open, retryDelay(attempt));
+      retryTimer = setTimeout(open, RETRY_DELAYS[attempt]);
       attempt += 1;
     };
 
@@ -191,7 +216,7 @@ export function useCall(ticket: JoinTicket | null, localStream: MediaStream | nu
       signaling.current?.close();
       dropAll();
     };
-  }, [ticket, localStream, patchRemote]);
+  }, [ticket, localStream, patchRemote, router]);
 
   const send = useCallback((m: Parameters<SignalingClient["send"]>[0]) => signaling.current?.send(m), []);
 

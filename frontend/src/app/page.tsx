@@ -1,8 +1,9 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 
+import { EndedNotice } from "@/components/EndedNotice";
 import { ArrowIcon, CamGlyph, CamOffIcon, LockIcon, PlusIcon, Spinner } from "@/components/Icons";
 import { MicMeter } from "@/components/LevelBars";
 import { fullSpot, useCamera, useCameraSlot } from "@/components/CameraLayer";
@@ -178,6 +179,10 @@ export default function Home() {
               </button>
             </div>
             {error && <p className="home__error">{error}</p>}
+            {/* why the last call ended; Suspense is required for useSearchParams */}
+            <Suspense fallback={null}>
+              <EndedNotice />
+            </Suspense>
           </form>
           <p className="home__e2e">
             <LockIcon size={14} />
