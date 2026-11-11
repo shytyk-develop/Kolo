@@ -43,8 +43,8 @@ body {
   overflow: hidden;
   background: #000;
   color: #fff;
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, "Segoe UI", Roboto, "Helvetica Neue", Arial,
-    sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", var(--font-inter), Inter, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   overscroll-behavior: none;
@@ -608,251 +608,6 @@ input {
   color: var(--red);
 }
 
-
-/* ---------- home ---------- */
-
-.home {
-  position: fixed;
-  inset: 0;
-  display: flex;
-  background: #000;
-  overflow: auto;
-  scrollbar-width: none;
-}
-
-.home__preview {
-  position: relative;
-  flex: 1;
-  min-width: 0;
-  min-height: 560px;
-  overflow: hidden;
-  isolation: isolate;
-  border-radius: 0 var(--video-r) var(--video-r) 0;
-  background: #111;
-}
-
-.home__controls {
-  position: absolute;
-  left: 40px;
-  bottom: 40px;
-  z-index: 2;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.home__status {
-  margin-left: 8px;
-  font-size: 14px;
-  font-weight: 500;
-  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.35);
-  /* new status fades in */
-  animation: text-in 260ms ease both;
-}
-@keyframes text-in {
-  from {
-    opacity: 0;
-    translate: 0 3px;
-  }
-}
-
-.home__card {
-  container: card / inline-size;
-  position: relative;
-  flex: none;
-  display: flex;
-  flex-direction: column;
-  width: clamp(360px, 29vw, 480px);
-  min-height: 560px;
-  margin: 14px;
-  padding: 0 48px;
-  border-radius: var(--frame-r);
-  background: #fff;
-  color: #000;
-  color-scheme: light;
-}
-
-.home__brand {
-  padding-top: clamp(40px, calc((100dvh - 28px) * 0.133), 140px);
-}
-
-.home__logo {
-  display: block;
-  width: 258.5px;
-  max-width: 100%;
-  height: auto;
-  color: #000;
-}
-
-.logo__dot {
-  animation: breathe 3.2s ease-in-out infinite;
-}
-@keyframes breathe {
-  50% {
-    opacity: 0.55;
-  }
-}
-
-.home__tagline {
-  margin: 21px 0 0;
-  font-size: 17px;
-  line-height: 26px;
-  letter-spacing: -0.2px;
-  color: #6e6e73;
-}
-
-.home__bottom {
-  margin-top: auto;
-  padding-bottom: 42px;
-}
-
-.home__join {
-  position: relative;
-}
-
-.home__label {
-  display: block;
-  margin-bottom: 10px;
-  font-size: 13px;
-  line-height: 16px;
-  font-weight: 500;
-  color: #545458;
-}
-
-.codefield {
-  display: flex;
-  align-items: center;
-  height: 56px;
-  padding: 0 6px 0 24px;
-  border-radius: 28px;
-  background: #f2f2f7;
-}
-.codefield:focus-within {
-  box-shadow: inset 0 0 0 1.5px rgba(0, 0, 0, 0.16);
-}
-.codefield input {
-  flex: 1;
-  min-width: 0;
-  border: 0;
-  outline: 0;
-  background: none;
-  color: #000;
-  font-size: 17px;
-}
-.codefield input::placeholder {
-  color: #9a9aa0;
-}
-.codefield button {
-  flex: none;
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  background: #000;
-  color: #fff;
-}
-
-.home__error {
-  position: absolute;
-  top: 100%;
-  margin: 8px 0 0 24px;
-  font-size: 13px;
-  color: var(--hangup);
-  animation: text-in 260ms ease both;
-}
-
-.home__e2e {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 70px 0 0;
-  font-size: 13px;
-  line-height: 18px;
-  color: #6e6e73;
-}
-
-/* "New meeting" tongue + waiting room switch */
-.home__actions {
-  position: absolute;
-  left: 0;
-  right: 48px;
-  top: 50%;
-  translate: 0 -50%;
-  z-index: 2;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-/* "New meeting": black tongue out of the card's gap */
-.notch {
-  position: relative;
-  flex: none;
-}
-
-.notch__btn {
-  --nr: 44px;
-  position: relative;
-  isolation: isolate;
-  /* 2px slack hides the card's anti-aliased edge */
-  clip-path: inset(0 -60px 0 -2px);
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  height: 88px;
-  padding: 0 36px 0 31px;
-  color: #fff;
-  font-size: 20px;
-  font-weight: 600;
-  letter-spacing: -0.3px;
-  white-space: nowrap;
-}
-/* starts under the gap, so no hole when it slides */
-.notch__btn::before {
-  content: "";
-  position: absolute;
-  z-index: -1;
-  inset: 0 0 0 -24px;
-  border-radius: 0 var(--nr) var(--nr) 0;
-  background: #000;
-  transition: translate 520ms var(--spring);
-}
-.notch__btn[aria-busy="true"] {
-  cursor: progress;
-}
-/* outline would be clipped, ring the shape instead */
-.notch__btn:focus-visible {
-  outline: none;
-}
-.notch__btn:focus-visible::before {
-  box-shadow: inset 0 0 0 2px #0a84ff;
-}
-.notch__icon {
-  display: grid;
-  place-items: center;
-  width: 16px;
-  height: 16px;
-  transition: rotate 520ms var(--spring);
-}
-
-.notch__fillet {
-  --g: transparent 27.5px, #000 28px;
-  position: absolute;
-  left: 0;
-  width: 28px;
-  height: 28px;
-  pointer-events: none;
-}
-.notch__fillet--a {
-  bottom: calc(100% - 1px);
-  background: radial-gradient(circle at 100% 0, var(--g));
-}
-.notch__fillet--b {
-  top: calc(100% - 1px);
-  background: radial-gradient(circle at 100% 100%, var(--g));
-}
 
 /* ---------- join ---------- */
 
@@ -2116,69 +1871,6 @@ html[data-call-island="right"] .island--float {
   }
 }
 
-.toggle {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-}
-
-.toggle__title {
-  font-size: 13px;
-  line-height: 16px;
-  font-weight: 500;
-  color: #545458;
-  white-space: nowrap;
-}
-
-@container card (max-width: 316px) {
-  .toggle {
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 6px;
-  }
-}
-
-.switch {
-  appearance: none;
-  flex: none;
-  position: relative;
-  width: 48px;
-  height: 29px;
-  margin: 0;
-  border-radius: 14.5px;
-  background: #e5e5ea;
-  cursor: pointer;
-}
-.switch:disabled {
-  cursor: default;
-  opacity: 0.6;
-}
-.switch::after {
-  content: "";
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 25px;
-  height: 25px;
-  border-radius: 50%;
-  background: #fff;
-  box-shadow:
-    0 3px 8px rgba(0, 0, 0, 0.15),
-    0 1px 1px rgba(0, 0, 0, 0.08);
-  transform-origin: 0 50%;
-  transition:
-    translate 460ms var(--spring),
-    scale 300ms var(--spring);
-}
-.switch:checked {
-  background: var(--green);
-}
-.switch:checked::after {
-  translate: 19px 0;
-  transform-origin: 100% 50%;
-}
-
 /* ---------- interaction states ---------- hover only with a mouse, press = shrink, release = spring, only colors / opacity / transforms */
 
 :root {
@@ -2191,12 +1883,9 @@ html[data-call-island="right"] .island--float {
 .chip,
 .hangup,
 .joinbar__go,
-.codefield button,
 .ci__quality,
 .notice--btn,
-.switch,
-.field,
-.codefield {
+.field {
   transition:
     background-color var(--out) ease,
     color var(--out) ease,
@@ -2208,10 +1897,6 @@ html[data-call-island="right"] .island--float {
 .notice__icon,
 .notice--btn .invite__code {
   transition: color var(--out) ease;
-}
-
-.codefield button svg {
-  transition: translate 420ms var(--spring);
 }
 
 .slash {
@@ -2254,7 +1939,7 @@ html[data-call-island="right"] .island--float {
 }
 
 @media (hover: hover) and (pointer: fine) {
-  :is(.round, .glass, .chip, .hangup, .joinbar__go, .codefield button, .ci__quality, .notice--btn, .switch, .field, .codefield):not(
+  :is(.round, .glass, .chip, .hangup, .joinbar__go, .ci__quality, .notice--btn, .field):not(
       :disabled
     ):hover {
     transition-duration: var(--in), var(--in), var(--in), var(--in), 420ms;
@@ -2296,16 +1981,6 @@ html[data-call-island="right"] .island--float {
     background-color: #242426;
   }
 
-  .codefield:hover {
-    background-color: #ebebf0;
-  }
-  .codefield button:not(:disabled):hover {
-    background-color: #2c2c2e;
-  }
-  .codefield button:not(:disabled):hover svg {
-    translate: 2px 0;
-  }
-
   .ci__quality:hover {
     background-color: #2c2c2e;
   }
@@ -2316,13 +1991,6 @@ html[data-call-island="right"] .island--float {
     transition-duration: var(--in);
   }
 
-  .notch__btn:hover::before {
-    translate: 6px 0;
-  }
-  .notch__btn:hover .notch__icon {
-    rotate: 90deg;
-  }
-
   .ci__preview:not(:disabled):hover::after {
     box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.22);
     transition-duration: var(--in);
@@ -2331,17 +1999,10 @@ html[data-call-island="right"] .island--float {
     background-color: rgba(58, 58, 60, 0.95);
     scale: 1.08;
   }
-
-  .switch:hover {
-    background-color: #dcdce1;
-  }
-  .switch:checked:hover {
-    background-color: #2bc04f;
-  }
 }
 
 /* press after hover, so it wins */
-:is(.round, .glass, .chip, .hangup, .joinbar__go, .codefield button, .ci__quality, .notice--btn):not(:disabled):active {
+:is(.round, .chip, .hangup, .joinbar__go, .ci__quality, .notice--btn):not(:disabled):active {
   scale: 0.92;
   transition:
     background-color var(--in) ease,
@@ -2355,11 +2016,6 @@ html[data-call-island="right"] .island--float {
   scale: 0.96;
 }
 
-.notch__btn:not([aria-busy="true"]):active::before {
-  translate: -5px 0;
-  transition: translate 120ms ease-out;
-}
-
 .ci__preview:not(:disabled):active .ci__swap {
   scale: 0.9;
   transition:
@@ -2368,157 +2024,12 @@ html[data-call-island="right"] .island--float {
     scale 90ms ease-out;
 }
 
-/* iOS-like: knob stretches while held */
-.switch:active::after {
-  scale: 1.18 1;
-}
-
 /* ---------- phones ---------- */
 
 /* phones (same as usePhone): square video corners */
 @media (max-width: 640px), (max-height: 500px) {
   :root {
     --video-r: 0px;
-  }
-}
-
-/* phones: one screen, camera on top, card at the bottom */
-@media (max-width: 760px) {
-  .home {
-    flex-direction: column;
-    overflow: hidden;
-  }
-
-  .home__preview {
-    flex: 1 1 0;
-    height: auto;
-    min-height: 0;
-    border-radius: 0 0 var(--video-r) var(--video-r);
-  }
-
-  .home__controls {
-    left: 20px;
-    bottom: 20px;
-  }
-
-  .home__card {
-    flex: none;
-    width: auto;
-    min-height: 0;
-    /* on the bottom edge, home indicator room inside */
-    margin: 10px 10px 0;
-    padding: 20px 22px 0;
-    /* camera 60%, card at least 40% */
-    min-height: calc(40% - 10px);
-    justify-content: space-between;
-    border-radius: var(--frame-r) var(--frame-r) 0 0;
-  }
-
-  .home__brand {
-    padding-top: 0;
-  }
-
-  .home__logo {
-    width: 132px;
-  }
-
-  .home__tagline {
-    margin-top: 8px;
-    font-size: 15px;
-    line-height: 20px;
-  }
-  /* compact: no footnote */
-  .home__more,
-  .home__e2e {
-    display: none;
-  }
-
-  .home__actions {
-    position: relative;
-    top: auto;
-    left: auto;
-    right: auto;
-    translate: none;
-    margin: 14px 0 14px -22px;
-  }
-
-  .notch__btn {
-    height: 58px;
-    --nr: 29px;
-    padding: 0 24px 0 22px;
-    font-size: 17px;
-  }
-
-  .home__label {
-    margin-bottom: 6px;
-  }
-
-  .codefield {
-    height: 50px;
-  }
-
-  /* room for the home indicator */
-  .home__bottom {
-    margin-top: 0;
-    padding-bottom: calc(38px + env(safe-area-inset-bottom));
-  }
-
-  .home__e2e {
-    margin-top: 16px;
-  }
-}
-
-/* short phones: no tagline */
-@media (max-width: 760px) and (max-height: 700px) {
-  .home__tagline {
-    display: none;
-  }
-  .home__actions {
-    margin: 12px 0 12px -22px;
-  }
-}
-
-/* phones on their side: side-by-side home, squeezed */
-@media (min-width: 761px) and (max-height: 600px) {
-  .home__preview,
-  .home__card {
-    min-height: 0;
-  }
-  .home__card {
-    margin: 10px;
-    padding: 0 32px;
-  }
-  .home__brand {
-    padding-top: 18px;
-  }
-  .home__logo {
-    width: 140px;
-  }
-  .home__tagline {
-    display: none;
-  }
-  .home__actions {
-    position: relative;
-    top: auto;
-    left: auto;
-    right: auto;
-    translate: none;
-    margin: 14px 0 0 -32px;
-  }
-  .notch__btn {
-    height: 60px;
-    --nr: 30px;
-    font-size: 17px;
-  }
-  .home__bottom {
-    padding-bottom: 14px;
-  }
-  .home__e2e {
-    display: none;
-  }
-  .home__controls {
-    left: 20px;
-    bottom: 20px;
   }
 }
 
@@ -2612,41 +2123,11 @@ html[data-call-island="right"] .island--float {
 }
 
 /* camera pages: see-through, controls over it */
-.home,
 .join {
   z-index: 2;
   background: transparent;
 }
-.home__preview {
-  background: transparent;
-}
 
-/* off to a room: card slides away */
-.home[data-leaving] .home__card {
-  animation: card-out 150ms cubic-bezier(0.4, 0, 0.6, 1) both;
-}
-.home[data-leaving] .home__controls {
-  animation: fade-out 120ms ease both;
-}
-/* back from a room: card slides back in */
-.home[data-entering] .home__card {
-  animation: card-in 520ms var(--glide) both;
-}
-.home[data-entering] .home__controls {
-  animation: fade-in 300ms ease 280ms both;
-}
-@keyframes card-out {
-  to {
-    opacity: 0;
-    translate: 56px 0;
-  }
-}
-@keyframes card-in {
-  from {
-    opacity: 0;
-    translate: 56px 0;
-  }
-}
 @keyframes fade-out {
   to {
     opacity: 0;
@@ -2657,21 +2138,6 @@ html[data-call-island="right"] .island--float {
     opacity: 0;
   }
 }
-@media (max-width: 760px) {
-  @keyframes card-out {
-    to {
-      opacity: 0;
-      translate: 0 64px;
-    }
-  }
-  @keyframes card-in {
-    from {
-      opacity: 0;
-      translate: 0 64px;
-    }
-  }
-}
-
 /* hang up: call fades, camera glides home */
 .call[data-leaving] {
   z-index: 3;
