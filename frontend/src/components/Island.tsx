@@ -1,17 +1,14 @@
 import type { HTMLAttributes, Ref } from "react";
 
-// float = free capsule near the top, like the iPhone one; the rest are glued to an edge
-export type Edge = "top" | "bottom" | "right" | "float";
+// float = capsule near the top, the rest are glued to an edge
+export type Edge = "top" | "bottom" | "right" | "left" | "float";
 
 interface Props extends HTMLAttributes<HTMLDivElement> {
   edge: Edge;
   ref?: Ref<HTMLDivElement>;
 }
 
-/**
- * Black shape glued to a screen edge. The two fillets are the inverse corners
- * where it meets the edge, they ride along when the size animates.
- */
+/** Black shape glued to a screen edge, fillets = the inverse corners. */
 export function Island({ edge, className, children, ref, ...rest }: Props) {
   return (
     <div ref={ref} className={`island island--${edge}${className ? ` ${className}` : ""}`} {...rest}>

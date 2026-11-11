@@ -3,6 +3,7 @@
 import { useEffect, useImperativeHandle, useRef, type Ref } from "react";
 
 import type { RemoteParticipant } from "@/hooks/useCall";
+import type { PortSide } from "@/hooks/usePhone";
 import { avatarStyle, initial } from "@/lib/format";
 
 import { CamGlyph, HangUpIcon, UnsplitIcon, UserIcon } from "./Icons";
@@ -12,7 +13,7 @@ import type { LocalMedia } from "./MediaProvider";
 import { Video } from "./Video";
 
 export interface CallBarHandle {
-  // where the preview sits, in screen px: a tile flying back lands exactly there
+  // preview slot in screen px, a tile flying back lands there
   slot: () => { x: number; y: number; w: number; h: number } | null;
 }
 
@@ -25,23 +26,22 @@ interface Props {
   onToggleVideo: () => void;
   onHangUp: () => void;
   onSwap: () => void;
-  // the preview pulled out with a finger: where it was, the pointer, the grab point in it
+  // preview pulled out with a finger
   onDetach: (rect: DOMRect, pointerId: number, offsetX: number, offsetY: number) => void;
-  // the preview is out (a tile in your hand) / the tile is over the bar, about to come back
+  // preview is out / the tile is over the bar
   out: boolean;
   receiving: boolean;
-  // split view on: the preview slot turns into "one screen again"
+  // split on: the slot means "one screen again"
   split: boolean;
   onUnsplit: () => void;
-  // tucked away below the screen (tap on the video), for a clean picture
+  // tucked away (tap on the video)
   hidden: boolean;
+  // port side: row at the bottom, column on a side
+  side: PortSide;
   ref?: Ref<CallBarHandle>;
 }
 
-/**
- * Phones: one row at the bottom instead of the side island. Mic, camera, hang up, and a
- * preview of the other video as big as a button: tap it to swap, pull it up to split.
- */
+/** Phone call bar: mic, camera, hang up, other video (tap = swap, pull = split). */
 export function CallBar({
   media,
   selfName,
@@ -57,11 +57,12 @@ export function CallBar({
   split,
   onUnsplit,
   hidden,
+  side,
   ref,
 }: Props) {
   const slot = useRef<HTMLButtonElement>(null);
   const drag = useRef<{ id: number; sx: number; sy: number } | null>(null);
-  // a drag just ended: the click that follows it is not a tap
+  // drag just ended: the next click isn't a tap
   const swallow = useRef(false);
   const cb = useRef({ onDetach });
   cb.current = { onDetach };
@@ -73,7 +74,7 @@ export function CallBar({
     },
   }));
 
-  // a few px of movement on the preview = it's coming out with the finger
+  // a few px of movement = pulled out
   useEffect(() => {
     const onMove = (e: PointerEvent) => {
       const d = drag.current;
@@ -85,7 +86,6 @@ export function CallBar({
     };
     const onUp = (e: PointerEvent) => {
       if (drag.current?.id === e.pointerId) drag.current = null;
-      // the click (if any) comes right after pointerup
       setTimeout(() => (swallow.current = false), 0);
     };
     window.addEventListener("pointermove", onMove);
@@ -99,11 +99,18 @@ export function CallBar({
   }, []);
 
   const remoteVideo = Boolean(remote?.stream && remote.video);
-  // only a real other person can be swapped with or split with
+  // swap / split only with someone there
   const canPull = Boolean(remote) && !split;
 
   return (
-    <Island edge="bottom" className="cbar" data-hidden={hidden || undefined} inert={hidden} data-testid="call-bar">
+    <Island
+      edge={side}
+      className="cbar"
+      data-side={side}
+      data-hidden={hidden || undefined}
+      inert={hidden}
+      data-testid="call-bar"
+    >
       <div className="cbar__row">
         <button
           className="round round--lg"
@@ -144,7 +151,6 @@ export function CallBar({
           aria-label={split ? "Back to one screen" : "Swap videos, pull up to split the screen"}
           data-testid="swap"
         >
-          {/* the other video, like the island preview: the track slides with --pos */}
           <span className="cbar__fill">
             <span className="track track--preview">
               <span className="slide">

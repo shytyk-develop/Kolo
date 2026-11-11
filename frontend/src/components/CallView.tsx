@@ -5,7 +5,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as Reac
 import { flushSync } from "react-dom";
 
 import { useCall } from "@/hooks/useCall";
-import { usePhone } from "@/hooks/usePhone";
+import { usePhone, usePortSide } from "@/hooks/usePhone";
 import { type CallStats, useStats } from "@/hooks/useStats";
 import { dbgOnce } from "@/lib/debug";
 import { avatarStyle, formatDuration, initial } from "@/lib/format";
@@ -38,9 +38,9 @@ interface Props {
   media: LocalMedia;
   code: string;
   selfName: string;
-  // the top island lives on the room page (it was there on the join screen), the call says what goes in it
+  // top island lives on the room page, the call says what goes in it
   notice: Slot<IslandItem | null>;
-  // my own video is on screen: whatever covered it (the join screen) can go
+  // my video is on screen: the join screen can go
   onShown?: () => void;
 }
 
@@ -52,20 +52,19 @@ interface Drag {
   width: number;
   active: boolean;
   p: number;
-  // last moves, for the flick speed
+  // last moves, for flick speed
   samples: { x: number; t: number }[];
 }
 
-// space between the two halves of split view
 const SPLIT_GAP = 8;
-// one stage move (track and halves share it), from the css
+// one stage move, same as the css
 const STAGE_MS = 540;
-// corners of the phone bar's preview button, from the css
+// bar preview corners, same as the css
 const BAR_RADIUS = 18;
 
 type Who = "self" | "remote";
 
-// a half of the screen in px: a = left (or top on a tall screen), b = right (bottom)
+// half of the screen: a = left / top, b = right / bottom
 function halfRect(side: SplitSide) {
   const vw = window.innerWidth;
   const vh = window.innerHeight;
@@ -87,54 +86,51 @@ export function CallView({ ticket, media, code, selfName, notice: noticeSlot, on
   const [copied, setCopied] = useState(false);
   const [connectedAt, setConnectedAt] = useState<number | null>(null);
   const [statsOpen, setStatsOpen] = useState(false);
-  // preview pulled out of the island (null = docked), remembered
+  // tile pulled out (null = docked)
   const [pip, setPip] = useState<PipRect | null>(null);
   const [dockHover, setDockHover] = useState(false);
-  // split view: which half I'm on, null = off. Remembered with the layout
+  // split: my half, null = off
   const [split, setSplit] = useState<SplitSide | null>(null);
-  // split target on offer while the tile is pushed into an edge
   const [splitHover, setSplitHover] = useState<SplitOffer>(null);
-  // a big video hidden for a moment: the tile is over it, handing over the picture
+  // big video hidden while the tile hands its picture over
   const [handoff, setHandoff] = useState<Who | null>(null);
   const lastPipW = useRef(268);
   const splitDrag = useRef<{ id: number; sx: number; sy: number } | null>(null);
   const pipHandle = useRef<PipHandle>(null);
   const islandHandle = useRef<CallIslandHandle>(null);
   const barHandle = useRef<CallBarHandle>(null);
-  // phones: a bottom bar instead of the side island, the tile only lives in your hand
   const phone = usePhone();
+  const port = usePortSide();
   const root = useRef<HTMLElement>(null);
   const drag = useRef<Drag | null>(null);
   const slideEnd = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  // phones: a tap on the video (not on a control) hides the bar for a clean screen, again shows it
+  // phones: tap on the video hides / shows the bar
   const [barHidden, setBarHidden] = useState(false);
   const tap = useRef<{ id: number; x: number; y: number; t: number } | null>(null);
   const isHost = ticket.role === "host";
 
   const remotes = Object.values(call.remotes);
-  // made for two, with more people the first connected one is on screen
+  // made for two: with more, the first connected one is shown
   const remote = remotes.find((r) => r.state === "connected") ?? remotes[0] ?? null;
   const hasRemote = Boolean(remote);
   const remoteName = remote?.peer.name && remote.peer.name !== "…" ? remote.peer.name : "Guest";
 
-  // always on, the quality bars need it; every 2s, cheap
+  // stats every 2s, the quality bars need them
   const stats = useStats(remote ? call.getPeerConnection(remote.peer.id) : null);
   const quality = callQuality(stats.rttMs, stats.packetLossPct);
   const safety = remote ? (codes[remote.peer.id] ?? null) : null;
 
-  // 0 = the other person big, 1 = me big. Nobody here yet = me.
+  // 0 = the other big, 1 = me big
   const target = hasRemote && !focusSelf ? 0 : 1;
-  // split needs two people
   const splitOn = split && hasRemote ? split : null;
-  // the small one (island preview / floating tile) is whoever isn't big
   const tileWho: Who = target === 0 ? "self" : "remote";
 
-  // the slide position is a css variable, drag writes it directly, so it's set here too
+  // slide position is a css var, drag writes it directly
   useLayoutEffect(() => {
     root.current?.style.setProperty("--pos", String(target));
   }, [target]);
 
-  // my video in the call is painted and faded in: the join screen over it can go
+  // my video is painted: the join screen can go
   const onShownRef = useRef(onShown);
   onShownRef.current = onShown;
   useEffect(() => {
@@ -145,16 +141,16 @@ export function CallView({ ticket, media, code, selfName, notice: noticeSlot, on
     const shown = () => {
       if (done) return;
       done = true;
-      // the video's own fade-in, from the css
+      // video fade-in, same as the css
       timer = setTimeout(() => onShownRef.current?.(), 200);
     };
-    // first painted frame where supported, first decoded one otherwise
+    // first painted frame where supported
     if (typeof v.requestVideoFrameCallback === "function") v.requestVideoFrameCallback(shown);
     else (v as HTMLVideoElement).addEventListener("loadeddata", shown, { once: true });
     return () => clearTimeout(timer);
   }, []);
 
-  // debug timeline: when the other person's picture is actually painted
+  // debug: when the other picture is actually painted
   const remoteStream = remote?.stream ?? null;
   useEffect(() => {
     const v = root.current?.querySelector<HTMLVideoElement>('[data-testid="remote-tile"] video');
@@ -163,14 +159,14 @@ export function CallView({ ticket, media, code, selfName, notice: noticeSlot, on
     return () => v.cancelVideoFrameCallback(id);
   }, [remoteStream]);
 
-  // call timer starts on the first connect
+  // call timer starts on first connect
   const connected = remote?.state === "connected";
   useEffect(() => {
     if (connected) setConnectedAt((t) => t ?? Date.now());
     if (!hasRemote) setConnectedAt(null);
   }, [connected, hasRemote]);
 
-  // once connected, safety code from both dtls fingerprints
+  // safety code from both dtls fingerprints
   useEffect(() => {
     Object.values(call.remotes).forEach(async (r) => {
       if (r.state !== "connected" || codes[r.peer.id]) return;
@@ -184,7 +180,7 @@ export function CallView({ ticket, media, code, selfName, notice: noticeSlot, on
     });
   }, [call.remotes, call, codes]);
 
-  // newcomers think everyone's mic and camera are on, tell them if mine are off
+  // newcomers assume my mic / camera are on: tell them
   const peerIds = Object.keys(call.remotes).sort().join(",");
   const { send } = call;
   useEffect(() => {
@@ -209,10 +205,7 @@ export function CallView({ ticket, media, code, selfName, notice: noticeSlot, on
     call.send({ type: "media-state", audio: media.audioOn, video });
   };
 
-  // the stage moves with one timing for the track and the halves; only around split changes,
-  // so resizing the window never animates. Any split change, whatever caused it (a drop, a pull,
-  // S, the other person leaving). Worked out during render, so the flag lands in the same commit
-  // as the new halves: anything measuring the layout in between can't make them jump
+  // stage animates only around split changes, not on resize. Set during render so it lands with the new halves
   const [staging, setStaging] = useState<"move" | "swap" | null>(null);
   const [stagedSplit, setStagedSplit] = useState(splitOn);
   if (stagedSplit !== splitOn) {
@@ -225,8 +218,7 @@ export function CallView({ ticket, media, code, selfName, notice: noticeSlot, on
     return () => clearTimeout(id);
   }, [staging, splitOn]);
 
-  // css transition picks up from wherever the slide is now, so fast clicks just turn it around.
-  // In split view it swaps the halves
+  // css transition starts from where the slide is, fast clicks just turn it around
   const swap = () => {
     if (!hasRemote) return;
     if (splitOn) {
@@ -236,9 +228,7 @@ export function CallView({ ticket, media, code, selfName, notice: noticeSlot, on
     morphSwap();
   };
 
-  // where the small one is right now (the picture the swap grows out of and the big one lands
-  // in): the floating tile, the phone bar's button, the open island's preview. null = it isn't
-  // on screen (closed island), then the big one goes into the small island itself
+  // where the small one is now (tile, bar button, island preview), null = not on screen
   const swapSlot = (): HTMLElement | null => {
     const el = root.current;
     return (
@@ -249,14 +239,10 @@ export function CallView({ ticket, media, code, selfName, notice: noticeSlot, on
     );
   };
 
-  // swap by tap / click / S: the two trade places, live, nothing frozen. The small one grows out
-  // of its slot (out from under the island / bar / tile) to the whole screen, the big one under it
-  // eases back a little; the slot dims for a moment and comes back showing the old big one.
-  // Both big videos are always on screen (stacked), so nothing has to be drawn from scratch
-  // mid-move. A swipe on the video is still a slide, it follows the finger
+  // swap: the small one grows out of its slot to the whole screen, the big one dims under it
   const swapRun = useRef<(() => void) | null>(null);
   const morphSwap = () => {
-    // one already running: jump it to its end, start from there
+    // one already running: jump it to the end
     swapRun.current?.();
     const el = root.current;
     const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -272,8 +258,6 @@ export function CallView({ ticket, media, code, selfName, notice: noticeSlot, on
     const W = el.clientWidth;
     const H = el.clientHeight;
     const R = frameRadius();
-    // the new state right away: the small one is on top now, the slot holds the old big one
-    // (dimmed for the moment, see data-swapping)
     el.dataset.snap = "";
     el.dataset.swapping = "";
     flushSync(() => setFocusSelf((v) => !v));
@@ -281,8 +265,7 @@ export function CallView({ ticket, media, code, selfName, notice: noticeSlot, on
     if (slot) {
       const r = slot.getBoundingClientRect();
       const sr = parseFloat(getComputedStyle(slot).borderTopLeftRadius) || 0;
-      // the whole screen, scaled down so it covers the slot, centered on it, and clipped to it:
-      // exactly the slot's picture at the start
+      // whole screen scaled down to cover the slot: starts as the slot's picture
       const k = Math.max(r.width / W, r.height / H);
       const tx = r.left + r.width / 2 - (W * k) / 2;
       const ty = r.top + r.height / 2 - (H * k) / 2;
@@ -302,7 +285,7 @@ export function CallView({ ticket, media, code, selfName, notice: noticeSlot, on
         { duration: 560, easing: "cubic-bezier(0.32, 0.72, 0, 1)" },
       );
     } else {
-      // nothing on screen to grow from (closed island): it fades in over the old one
+      // nothing to grow from: fade in
       grow = small.animate(
         [
           { opacity: 0, transform: "scale(1.02)" },
@@ -314,12 +297,10 @@ export function CallView({ ticket, media, code, selfName, notice: noticeSlot, on
         },
       );
     }
-    // the old one sinks into the shade under it (dims, never moves: no edge ever shows)
     const settle = big.animate([{ opacity: 1 }, { opacity: 0.55 }], {
       duration: 560,
       easing: "cubic-bezier(0.32, 0.72, 0, 1)",
     });
-    // the slot comes back with its new picture while the big one is still settling
     const back = setTimeout(() => {
       el.dataset.swapBack = "";
       delete el.dataset.swapping;
@@ -341,7 +322,7 @@ export function CallView({ ticket, media, code, selfName, notice: noticeSlot, on
     grow.finished.then(done, () => {});
   };
 
-  // M = mic, V = camera, S = swap. By key position, so it works on any keyboard layout.
+  // M = mic, V = camera, S = swap, by key position (any layout)
   const keys = useRef({ toggleAudio, toggleVideo, swap });
   keys.current = { toggleAudio, toggleVideo, swap };
   useEffect(() => {
@@ -359,11 +340,11 @@ export function CallView({ ticket, media, code, selfName, notice: noticeSlot, on
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // restore where things were last time, keep them on screen when the window changes
+  // restore the last layout, keep it on screen on resize
   useEffect(() => {
     try {
       const saved = JSON.parse(localStorage.getItem("kolo:layout") ?? "{}");
-      // phones have no free tile to come back to
+      // phones: no free tile
       if (saved.pip && !window.matchMedia("(max-width: 640px), (max-height: 500px)").matches)
         setPip(clampPip(saved.pip));
       if (saved.split === "a" || saved.split === "b") setSplit(saved.split);
@@ -374,7 +355,7 @@ export function CallView({ ticket, media, code, selfName, notice: noticeSlot, on
   }, []);
   const firstSave = useRef(true);
   useEffect(() => {
-    // the first run would overwrite the saved layout with the defaults
+    // first run would overwrite the saved layout
     if (firstSave.current) {
       firstSave.current = false;
       return;
@@ -385,20 +366,19 @@ export function CallView({ ticket, media, code, selfName, notice: noticeSlot, on
     if (pip) lastPipW.current = pip.w;
   }, [pip, split]);
 
-  // became a phone (window narrowed) with a tile out: it has nowhere to stay, back into the bar
+  // became a phone with a tile out: back into the bar
   useEffect(() => {
     if (phone) setPip((p) => (p && !document.querySelector(".pip[data-dragging], .pip[data-flying]") ? null : p));
   }, [phone]);
 
-  // pulled out of the island: the tile appears exactly where the preview was and takes the drag over
+  // pulled out of the island: the tile takes over the drag
   const detach = (r: DOMRect, pointerId: number, offX: number, offY: number) => {
     const from = { x: r.left, y: r.top, w: r.width };
     setPip(from);
     pipHandle.current?.grab(pointerId, from, offX, offY, { fromIsland: true });
   };
 
-  // phones: pulled out of the bar's button. It grows from the button into a tile around the
-  // finger, the same spot of the picture stays under it
+  // phones: pulled out of the bar button, grows into a tile around the finger
   const detachFromBar = (r: DOMRect, pointerId: number, offX: number, offY: number) => {
     const w = clampPip({ x: 0, y: 0, w: 0 }).w;
     const s = r.width / w;
@@ -407,11 +387,10 @@ export function CallView({ ticket, media, code, selfName, notice: noticeSlot, on
     pipHandle.current?.grab(pointerId, from, offX / s, offY / s, { fromScale: s, fromRadius: BAR_RADIUS });
   };
 
-  // the tile dropped on the split target: the big video shrinks to its half while the tile
-  // flies into the other one, then the stage's own video takes over under it
+  // dropped on a half: big video shrinks to the other half, tile flies in
   const splitIn = (side: SplitSide) => {
     setSplitHover(null);
-    // the other one left while it was in the air: it's just a drop
+    // they left mid-air: just a drop
     if (!hasRemote) return;
     const mySide = tileWho === "self" ? side : otherSide(side);
     const started = performance.now();
@@ -420,7 +399,7 @@ export function CallView({ ticket, media, code, selfName, notice: noticeSlot, on
     const r = halfRect(side);
     pipHandle.current?.flyTo(
       r,
-      // the stage needs its full move too, or the picture would shift at the handover
+      // wait for the full stage move, or the picture shifts
       () =>
         setTimeout(
           () => {
@@ -433,18 +412,15 @@ export function CallView({ ticket, media, code, selfName, notice: noticeSlot, on
     );
   };
 
-  // a half pulled away in split view: it turns into the tile under the finger,
-  // the other half grows back to the whole screen
+  // a half pulled away in split: it becomes the tile
   const splitOut = (side: SplitSide, pointerId: number, x: number, y: number, sx: number, sy: number) => {
     if (!splitOn) return;
     const who: Who = side === splitOn ? "self" : "remote";
     const half = halfRect(side);
     const w = clampPip({ x: 0, y: 0, w: lastPipW.current }).w;
-    // same spot of the picture stays under the finger
     const offX = ((sx - half.x) / half.w) * w;
     const offY = ((sy - half.y) / half.h) * w * PIP_RATIO;
     const from = { x: x - offX, y: y - offY, w };
-    // no slide inside the small tracks: the tile already shows the right person
     const el = root.current;
     if (el) {
       el.dataset.instant = "";
@@ -458,39 +434,32 @@ export function CallView({ ticket, media, code, selfName, notice: noticeSlot, on
     pipHandle.current?.grab(pointerId, from, offX, offY, { fromScale: half.w / w });
   };
 
-  // back into the island: it opens with an empty slot, the tile flies into exactly that spot,
-  // then the real preview takes over under it
+  // back into the island: opens with an empty slot, the tile flies into it
   const dockIn = () => {
     const land = () => {
       setPip(null);
       setDockHover(false);
     };
-    // phones: the bar's button is always there, straight into it
+    // phones: straight into the bar button
     if (phone) {
       const slot = barHandle.current?.slot();
       if (slot) pipHandle.current?.flyTo(slot, land, BAR_RADIUS);
       else land();
       return;
     }
-    // the open layout goes into the DOM now, so the slot can be measured in the same event
-    // and the tile leaves on the very frame you let go
+    // open layout goes into the DOM now, so the slot can be measured right away
     flushSync(() => setDockHover(true));
     const slot = islandHandle.current?.previewSlot();
     if (slot) pipHandle.current?.flyTo(slot, land);
     else land();
   };
 
-  // leaving: a navigation with a type, so the page change can play the "back home" version
-  // of the camera morph (or a plain fade when the other person is the big one)
-  // leaving: the call fades out and the camera glides to its home panel, both on the tap.
-  // I was the whole screen: the camera takes my place under the fading call and goes from
-  // there; otherwise it appears on its home spot
+  // leaving: the call fades, the camera glides home on the same tap
   const cam = useCamera();
   const [leaving, setLeaving] = useState(false);
   const hangUp = () => {
     const el = root.current;
     if (el) el.dataset.leaving = "";
-    // nothing more to say: the top island folds up on the way out
     setLeaving(true);
     leaveHome(cam, router, selfBigRef.current ? "full" : "hidden");
   };
@@ -500,12 +469,11 @@ export function CallView({ ticket, media, code, selfName, notice: noticeSlot, on
       await navigator.clipboard.writeText(window.location.href);
       setCopied(true);
     } catch {
-      // no clipboard on http, the code is on screen anyway
+      // no clipboard on http
     }
   };
 
-  // swipe on the big video: follows the finger, flick or past half switches.
-  // In split view a drag on a half pulls it out instead
+  // swipe on the big video: flick or past half switches. In split a drag pulls a half out
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     tap.current = { id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp };
     if (!hasRemote || (e.pointerType === "mouse" && e.button !== 0)) return;
@@ -547,14 +515,11 @@ export function CallView({ ticket, media, code, selfName, notice: noticeSlot, on
       if (Math.abs(dx) < 8 || Math.abs(dx) < Math.abs(dy)) return;
       d.active = true;
       e.currentTarget.setPointerCapture(e.pointerId);
-      // side by side for the swipe (the other one was under the big one, it's covered, so the
-      // jump to its side is never seen)
       clearTimeout(slideEnd.current);
       el.dataset.dragging = "";
       el.dataset.sliding = "";
     }
     let p = d.from - dx / d.width;
-    // rubber band past the ends
     if (p < 0) p *= 0.25;
     else if (p > 1) p = 1 + (p - 1) * 0.25;
     d.p = p;
@@ -564,7 +529,7 @@ export function CallView({ ticket, media, code, selfName, notice: noticeSlot, on
   };
 
   const onPointerEnd = (e: ReactPointerEvent<HTMLDivElement>) => {
-    // a short touch that didn't move: on a phone it hides / shows the bar
+    // short tap on a phone: hide / show the bar
     const tp = tap.current;
     tap.current = null;
     if (phone && e.type === "pointerup" && tp?.id === e.pointerId && e.timeStamp - tp.t < 400) {
@@ -580,11 +545,10 @@ export function CallView({ ticket, media, code, selfName, notice: noticeSlot, on
     const speed = (last.x - first.x) / Math.max(1, last.t - first.t);
     let next = d.p > 0.5 ? 1 : 0;
     if (Math.abs(speed) > 0.35) next = speed < 0 ? 1 : 0;
-    // same frame: transition back on and the new target, it animates from the finger
     delete el.dataset.dragging;
     el.style.setProperty("--pos", String(next));
     setFocusSelf(next === 1);
-    // settled: back to resting on top of each other, without any move
+    // settled: back to stacked, no move
     clearTimeout(slideEnd.current);
     slideEnd.current = setTimeout(() => {
       el.dataset.snap = "";
@@ -606,17 +570,28 @@ export function CallView({ ticket, media, code, selfName, notice: noticeSlot, on
         onAdmit: (id) => call.send({ type: "admit", peer_id: id }),
         onDeny: (id) => call.send({ type: "deny", peer_id: id }),
         onHome: hangUp,
-        // phones have no side island with the clock: the top island shows it once connected
+        // phones: the top island shows the clock
         timer: phone && connected ? connectedAt : null,
       });
 
-  // every render: the island shows what the call says right now (same frame, before paint)
+  // phone on its side: island goes to the camera's side. It's outside the call, so via <html>
+  const islandSide = phone && port !== "bottom" ? (port === "right" ? "left" : "right") : null;
+  useLayoutEffect(() => {
+    const html = document.documentElement;
+    if (islandSide) html.dataset.callIsland = islandSide;
+    else delete html.dataset.callIsland;
+    return () => {
+      delete html.dataset.callIsland;
+    };
+  }, [islandSide]);
+
+  // island shows what the call says right now, before paint
   useLayoutEffect(() => {
     noticeSlot.set(notice);
   });
 
   const remoteVideo = Boolean(remote?.stream && remote.video);
-  // I'm the whole screen: my video can morph into the home screen's camera on the way out
+  // I'm the whole screen: my video can morph home on the way out
   const selfBig = !splitOn && target === 1 && !handoff;
   const selfBigRef = useRef(selfBig);
   selfBigRef.current = selfBig;
@@ -624,7 +599,6 @@ export function CallView({ ticket, media, code, selfName, notice: noticeSlot, on
   const sideOf = (who: Who) => (splitOn ? (who === "self" ? splitOn : otherSide(splitOn)) : undefined);
 
   return (
-    // data-leaving (set on hang up): the call fades away over the camera gliding home
     <main
       ref={root}
       className="call"
@@ -657,8 +631,6 @@ export function CallView({ ticket, media, code, selfName, notice: noticeSlot, on
             </div>
             <span className="slide__name">{remoteName}</span>
           </div>
-          {/* the name stays put once it's free (renaming confuses react's bookkeeping); whether the
-              camera morphs home is the share class: only when I'm the whole screen */}
 
           <div
             className="slide slide--2"
@@ -681,8 +653,7 @@ export function CallView({ ticket, media, code, selfName, notice: noticeSlot, on
         <RemoteAudio key={r.peer.id} stream={r.stream} />
       ))}
 
-      {/* where the tile goes when dropped: half of the screen */}
-      {/* split view on offer: both halves, the one under the tile lights up, that's where it goes */}
+      {/* split targets: the half under the tile lights up */}
       {(["a", "b"] as const).map((side) => (
         <div
           key={side}
@@ -736,6 +707,7 @@ export function CallView({ ticket, media, code, selfName, notice: noticeSlot, on
           split={Boolean(splitOn)}
           onUnsplit={() => setSplit(null)}
           hidden={barHidden}
+          side={port}
         />
       ) : (
         <CallIsland
@@ -762,7 +734,7 @@ export function CallView({ ticket, media, code, selfName, notice: noticeSlot, on
 
 const dash = (v: number | string | null, unit = "") => (v == null ? "—" : `${v}${unit}`);
 
-// getStats numbers in a corner, over the video; doesn't catch touches, swipes go through
+// getStats numbers in a corner, touches go through
 function StatsPanel({
   show,
   stats,
@@ -774,7 +746,7 @@ function StatsPanel({
   quality: ReturnType<typeof callQuality>;
   safety: string | null;
 }) {
-  // stays mounted until the closing animation ends
+  // mounted until the closing animation ends
   const [mounted, setMounted] = useState(show);
   if (show && !mounted) setMounted(true);
   if (!mounted) return null;
@@ -823,11 +795,11 @@ interface NoticeInput {
   onAdmit: (id: string) => void;
   onDeny: (id: string) => void;
   onHome: () => void;
-  // call start (ms) when the island should show the call clock, else null
+  // call start when the island shows the clock, else null
   timer: number | null;
 }
 
-// what the top island says, most important first
+// top island text, most important first
 function callNotice(n: NoticeInput): IslandItem | null {
   if (n.status === "denied") {
     return {
@@ -928,7 +900,7 @@ function callNotice(n: NoticeInput): IslandItem | null {
       ),
     };
   }
-  // nothing to say: on a phone, how long the call has been going
+  // phones: call clock
   if (n.timer) {
     return {
       key: "timer",
@@ -943,11 +915,11 @@ function callNotice(n: NoticeInput): IslandItem | null {
   return null;
 }
 
-// time since the call connected, ticking on its own (nothing else re-renders every second)
+// time since connect, ticks on its own
 function Elapsed({ since }: { since: number }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    // on the second boundaries of the call, not of the clock
+    // on the call's second boundaries
     let id: ReturnType<typeof setTimeout>;
     const tick = () => {
       setNow(Date.now());

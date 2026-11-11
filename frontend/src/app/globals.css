@@ -1,8 +1,5 @@
-/* sizes come from the mockups in web-interface-design (@2x, so px / 2) */
-
 :root {
-  /* things glued to a screen edge (the bars, the side island) come in with this: fast, then
-     settling, never past their spot, so they never lift off the edge and show a gap */
+  /* edge things come in with this: fast, no overshoot */
   --glide: cubic-bezier(0.22, 1, 0.36, 1);
   --green: #30d158;
   --red: #ff453a;
@@ -11,14 +8,14 @@
   --btn-hover: #2c2c2e;
   --muted: #8e8e93;
   --frame-r: 28px;
-  /* corners of the videos themselves (stage, halves, join, home camera): square on phones */
+  /* video corners: square on phones */
   --video-r: var(--frame-r);
 
   /* iOS-like spring, a little overshoot */
   --spring: linear(0, 0.0295, 0.1033, 0.2034, 0.3157, 0.4302, 0.5398, 0.64, 0.7283, 0.8035, 0.8656, 0.9154, 0.9541, 0.9829, 1.0036, 1.0174, 1.0259, 1.0303, 1.0315, 1.0307, 1.0284, 1.0252, 1.0217, 1.0181, 1.0146, 1.0115, 1.0087, 1.0063, 1.0043, 1.0027, 1.0015, 1.0006, 0.9999, 0.9995, 0.9992, 0.999, 1);
-  /* settling spring for closing: no visible bounce, still alive at the end */
+  /* closing spring: no visible bounce */
   --spring-close: linear(0, 0.0293, 0.1007, 0.1947, 0.2979, 0.4012, 0.4991, 0.5881, 0.6668, 0.7346, 0.7918, 0.8393, 0.878, 0.9091, 0.9337, 0.9528, 0.9674, 0.9784, 0.9866, 0.9924, 0.9965, 0.9993, 1.0011, 1.0022, 1.0028, 1.003, 1.0029, 1.0027, 1.0025, 1.0022, 1);
-  /* slow soft spring for the side island opening: big size change, so no rush, tiny overshoot */
+  /* slow soft spring for the side island */
   --spring-open: linear(0, 0.0207, 0.0737, 0.1476, 0.2333, 0.324, 0.4147, 0.5019, 0.5831, 0.657, 0.7228, 0.7802, 0.8295, 0.8711, 0.9056, 0.9337, 0.9562, 0.9739, 0.9874, 0.9975, 1.0047, 1.0097, 1.0128, 1.0145, 1.0151, 1.015, 1.0143, 1.0133, 1.012, 1.0106, 1.0093, 1.0079, 1.0067, 1.0055, 1.0045, 1.0036, 1.0028, 1.0021, 1.0016, 1.0011, 1);
   --ease-out: cubic-bezier(0.32, 0.72, 0, 1);
 
@@ -42,7 +39,7 @@ html,
 body {
   margin: 0;
   height: 100%;
-  /* every screen fits the window: nothing ever scrolls, either way */
+  /* nothing ever scrolls */
   overflow: hidden;
   background: #000;
   color: #fff;
@@ -72,7 +69,7 @@ button:disabled {
   cursor: default;
 }
 
-/* fast double clicks shouldn't select text or zoom on phones */
+/* no text select / zoom on fast double taps */
 button,
 label {
   user-select: none;
@@ -93,7 +90,7 @@ input {
   outline-offset: 2px;
 }
 
-/* ---------- video + placeholders ---------- */
+/* ---------- video ---------- */
 
 .video {
   position: absolute;
@@ -103,7 +100,7 @@ input {
   object-fit: cover;
   display: block;
   background: #0b0b0c;
-  /* fades in on the first frame, no black flash from a fresh <video> */
+  /* fades in on the first frame */
   opacity: 0;
   transition: opacity 180ms ease;
 }
@@ -117,18 +114,17 @@ input {
   transform: scaleX(-1);
 }
 
-/* smart fit, shapes far apart: the whole picture, over a soft blurred copy of itself.
-   The copy is drawn small and scaled up, so the blur stays cheap on phones */
+/* smart fit: whole picture over a blurred copy (drawn small, cheap blur) */
 .video[data-fit="contain"] {
   object-fit: contain;
   background: transparent;
-  /* zoomed in from the center, so it's not a thin strip; the slide clips what spills over */
+  /* zoomed from the center, not a thin strip */
   scale: var(--zoom, 1);
   transition:
     opacity 180ms ease,
     scale 420ms var(--ease-out);
 }
-/* the frame it switches from "fill" to "whole" (they look the same then): no motion */
+/* the switch frame: no motion */
 .video[data-fit-instant] {
   transition: opacity 180ms ease;
 }
@@ -141,12 +137,12 @@ input {
   filter: blur(6px) saturate(1.2) brightness(0.38);
   pointer-events: none;
 }
-/* mirrored: flip, then shift back by its own width so it still covers the box */
+/* mirrored: flip and shift back */
 .video--backdrop.video--mirror {
   transform: scale(-4, 4) translateX(-100%);
 }
 
-/* camera off: covers the video, the stream stays attached */
+/* camera off: covers the video */
 .nocam {
   position: absolute;
   inset: 0;
@@ -204,7 +200,7 @@ input {
   box-shadow: 0 0 0 2px #000;
 }
 
-/* ---------- island: black shape on a screen edge, inverse corners where it meets it ---------- */
+/* ---------- island ---------- */
 
 .island {
   --f: 22px; /* inverse corner */
@@ -216,7 +212,6 @@ input {
   width: var(--w);
   height: var(--h);
   color: #fff;
-  /* resizing it never touches the rest of the page */
   contain: layout style;
   transition:
     width var(--dur) var(--ease),
@@ -238,7 +233,7 @@ input {
   pointer-events: none;
 }
 
-/* 1px overlap into the body, no seam while the size animates */
+/* 1px overlap into the body: no seam while animating */
 .island--right {
   right: 0;
   top: 50%;
@@ -261,12 +256,12 @@ input {
   background: radial-gradient(circle at 0 100%, var(--g));
 }
 
-/* floating capsule near the top, like the iPhone one: no inverse corners, round all over */
+/* floating capsule near the top */
 .island--float {
   top: max(12px, env(safe-area-inset-top));
   left: 50%;
   transform: translateX(-50%);
-  /* scale around the visual center top (the box is shifted by -50%) */
+  /* scale around the top center */
   transform-origin: 0 0;
   transition:
     width var(--dur) var(--ease),
@@ -280,12 +275,11 @@ input {
     0 10px 30px rgba(0, 0, 0, 0.28),
     0 2px 6px rgba(0, 0, 0, 0.18);
 }
-/* hidden = shrinks into a small capsule and fades; showing grows out of it */
+/* hidden = shrinks and fades */
 .island--float[data-hidden] {
   opacity: 0;
   scale: 0.92;
-  /* not drawn at all once faded: a page change snapshots it regardless of opacity, an empty
-     black pill would show through it */
+  /* not drawn once faded, or a page change snapshot shows an empty pill */
   visibility: hidden;
   pointer-events: none;
   transition:
@@ -318,7 +312,7 @@ input {
   background: radial-gradient(circle at 100% 0, var(--g));
 }
 
-/* ---------- top island with changing content ---------- */
+/* ---------- top island ---------- */
 
 
 .morph__layer {
@@ -431,7 +425,7 @@ input {
   font-weight: 600;
 }
 
-/* an error with the way back: a round back button at the island's left end */
+/* error: back button at the left end */
 .notice--back {
   gap: 10px;
   padding: 6px 18px 6px 6px;
@@ -464,7 +458,7 @@ input {
   line-height: 18px;
 }
 
-/* phones: the call clock in the top island, small, digits that don't wobble */
+/* phones: call clock, digits don't wobble */
 .notice--timer {
   gap: 8px;
   min-height: 32px;
@@ -557,7 +551,6 @@ input {
   backdrop-filter: blur(20px) saturate(1.4);
 }
 
-/* icons sit above anything a button draws inside */
 .round,
 .glass {
   position: relative;
@@ -569,7 +562,7 @@ input {
   z-index: 1;
 }
 
-/* green "liquid" in the mic capsule, js scales it with your voice */
+/* mic level liquid, scaled from js */
 .mic-fill {
   fill: var(--green);
   stroke: none;
@@ -582,7 +575,7 @@ input {
   background: rgba(255, 69, 58, 0.9);
 }
 
-/* level bars, heights are set from js */
+/* level bars, heights from js */
 .bars {
   display: inline-flex;
   align-items: center;
@@ -599,7 +592,6 @@ input {
   width: 2.5px;
   height: 18px;
   border-radius: 1.25px;
-  /* lighter at the tips, like the iOS call waveform */
   background: linear-gradient(to bottom, color-mix(in srgb, currentColor 55%, #fff), currentColor 30%, currentColor 70%, color-mix(in srgb, currentColor 55%, #fff));
   transform: scaleY(0.194);
   will-change: transform;
@@ -608,7 +600,7 @@ input {
   opacity: 0;
   scale: 0.6;
 }
-/* not live: js stopped writing, css settles them into dots */
+/* not live: settle into dots */
 .bars:not([data-live]) > span {
   transition: transform 260ms var(--ease-out);
 }
@@ -654,7 +646,7 @@ input {
   font-size: 14px;
   font-weight: 500;
   text-shadow: 0 1px 10px rgba(0, 0, 0, 0.35);
-  /* a new status (keyed) fades in, no hard text swap */
+  /* new status fades in */
   animation: text-in 260ms ease both;
 }
 @keyframes text-in {
@@ -692,7 +684,6 @@ input {
   color: #000;
 }
 
-/* the green dot breathes, slow, barely there */
 .logo__dot {
   animation: breathe 3.2s ease-in-out infinite;
 }
@@ -781,7 +772,7 @@ input {
   color: #6e6e73;
 }
 
-/* "New meeting" tongue + waiting room switch, one row in the middle of the card */
+/* "New meeting" tongue + waiting room switch */
 .home__actions {
   position: absolute;
   left: 0;
@@ -795,7 +786,7 @@ input {
   gap: 12px;
 }
 
-/* "New meeting": black tongue coming out of the gap into the card */
+/* "New meeting": black tongue out of the card's gap */
 .notch {
   position: relative;
   flex: none;
@@ -805,8 +796,7 @@ input {
   --nr: 44px;
   position: relative;
   isolation: isolate;
-  /* nothing shows left of the card edge, however the shape moves. 2px of slack covers
-     the card's anti-aliased edge; that strip is the black gap anyway */
+  /* 2px slack hides the card's anti-aliased edge */
   clip-path: inset(0 -60px 0 -2px);
   display: flex;
   align-items: center;
@@ -819,7 +809,7 @@ input {
   letter-spacing: -0.3px;
   white-space: nowrap;
 }
-/* the black tongue; starts under the gap so sliding right never opens a hole */
+/* starts under the gap, so no hole when it slides */
 .notch__btn::before {
   content: "";
   position: absolute;
@@ -832,7 +822,7 @@ input {
 .notch__btn[aria-busy="true"] {
   cursor: progress;
 }
-/* the outline would be clipped, ring the shape instead */
+/* outline would be clipped, ring the shape instead */
 .notch__btn:focus-visible {
   outline: none;
 }
@@ -885,7 +875,6 @@ input {
   --r: 36px;
   --f: 24px;
 }
-/* sized by its content */
 .joinbar .island__body {
   position: relative;
 }
@@ -967,17 +956,13 @@ input {
   animation: rise 0.46s var(--glide) both;
 }
 @keyframes rise {
-  /* starts 1px inside the screen: still unseen, but "on screen", so a page change gives it
-     its own layer and it rises over the camera morph instead of under it */
+  /* starts 1px on screen so it gets its own layer over the camera morph */
   from {
     translate: 0 calc(100% - 1px);
   }
 }
 
-/* into the call. The bar sinks away while the call's island slides in from the right.
-   The camera stays: the call shows the very same picture under it, and once that one is
-   up this one just goes (nothing to see, they are identical) */
-/* its own black backdrop goes first, the call is right under it */
+/* into the call: the bar sinks, the call island slides in */
 .join[data-leaving] {
   background: transparent;
 }
@@ -1004,7 +989,7 @@ input {
   position: fixed;
   inset: 0;
   background: #000;
-  /* clip, not hidden: the slide parked off screen can never be scrolled to */
+  /* clip, not hidden: the parked slide can't be scrolled to */
   overflow: clip;
 }
 
@@ -1016,8 +1001,7 @@ input {
   -webkit-user-select: none;
 }
 
-/* two slides side by side, the track moves. One transition for both tracks = they stay in sync,
-   and a css transition restarts from the current spot, so fast clicks never jump or freeze */
+/* two slides side by side, the track moves; one transition for both tracks */
 .track {
   position: absolute;
   inset: 0;
@@ -1031,9 +1015,7 @@ input {
   will-change: auto;
 }
 
-/* at rest both big videos are on screen, on top of each other (the big one over the other).
-   Side by side, on the track, only while a swipe moves them. So nothing ever comes in from off
-   screen: a swap is all live pictures, no frame has to be drawn from scratch mid-move */
+/* at rest both big videos are stacked; side by side only while swiping */
 .call:not([data-sliding]):not([data-split]) .track--main {
   transform: none;
 }
@@ -1046,8 +1028,7 @@ input {
   z-index: 1;
 }
 
-/* a swap: the slot (island / bar / tile) dims while the picture leaves it, then comes back
-   with the other one in it */
+/* swap: the slot dims, then shows the other one */
 .call[data-swapping] :is(.ci__slotfill, .cbar__fill),
 .call[data-swapping] .pip__frame > :is(.track, .ci__swap, .ci__label) {
   opacity: 0;
@@ -1058,7 +1039,6 @@ input {
   transition: opacity 260ms ease;
 }
 
-/* the island shows the other one, so it moves the other way */
 .track--preview {
   transform: translate3d(calc((1 - var(--pos)) * (-100% - var(--gap))), 0, 0);
 }
@@ -1084,9 +1064,7 @@ input {
   left: calc(100% + var(--gap));
 }
 
-/* split view: both big, side by side (stacked on a tall screen). data-side on each slide:
-   a = left / top, b = right / bottom. Main slides are placed by their edges (left/right,
-   top/bottom), not by width, so every change between full and half can animate */
+/* split view: a = left / top, b = right / bottom. Placed by edges, so changes animate */
 .call {
   --split-gap: 8px;
   --half: calc(50% + var(--split-gap) / 2);
@@ -1120,8 +1098,7 @@ input {
   }
 }
 
-/* going in or out of split: the track and the halves move with one timing, so the sum of
-   both is one smooth move. Only then: a window resize must not animate */
+/* going in / out of split only: a resize must not animate */
 .call[data-staging] .track--main > .slide {
   transition:
     left 520ms var(--ease-out),
@@ -1129,8 +1106,7 @@ input {
     top 520ms var(--ease-out),
     bottom 520ms var(--ease-out);
 }
-/* swapping the halves: the front edge goes first, the back one follows, so they stretch
-   past each other and no black gap opens between them */
+/* swapping halves: front edge first, so no gap opens */
 .call[data-staging="swap"] .track--main > .slide[data-side="b"] {
   transition:
     right 340ms var(--ease-out),
@@ -1145,23 +1121,21 @@ input {
     right 340ms var(--ease-out) 190ms,
     bottom 340ms var(--ease-out) 190ms;
 }
-/* the tile is over this one, handing the picture over: hidden, and it jumps */
+/* tile is over this one: hidden */
 .track--main > .slide[data-handoff] {
   opacity: 0;
   transition: none;
 }
-/* the small tracks switch without a slide, the tile already shows the right person */
 .call[data-instant] .track--preview {
   transition: none;
 }
 
-/* every track snaps to its new spot without a slide (a swap, the end of a swipe) */
 .call[data-snap] .track,
 .call[data-snap] .ci__swap {
   transition: none;
 }
 
-/* names on the halves, split view only */
+/* names on the halves, split only */
 .slide__name {
   position: absolute;
   left: 20px;
@@ -1193,13 +1167,11 @@ input {
     opacity 300ms ease 260ms,
     translate 520ms var(--spring) 260ms;
 }
-/* in split you grab a half to pull it out */
 .call[data-split] .call__stage {
   cursor: grab;
 }
 
-/* split view on offer: both halves show up (the left edge was held), the one under the tile
-   lights up: that's where it goes. The other one stays as a quiet outline */
+/* split targets: the one under the tile lights up */
 .splitzone {
   position: fixed;
   z-index: 22;
@@ -1241,7 +1213,7 @@ input {
     inset 0 0 0 2px rgba(255, 255, 255, 0.75),
     inset 0 0 0 7px rgba(255, 255, 255, 0.08);
 }
-/* the right half comes in a beat later: it reads as "now there are two" */
+/* right half a beat later */
 .splitzone[data-side="b"][data-shown] {
   transition-delay: 60ms, 60ms, 0s, 0s;
 }
@@ -1292,9 +1264,8 @@ input {
   --ease: var(--spring-close);
   --open-w: 296px;
   --open-h: min(480px, calc(100dvh - 96px));
-  /* always in the middle of the right edge */
   top: 50%;
-  /* scale around the right edge, vertical center (the box is shifted by -50%) */
+  /* scale around the right edge center */
   transform-origin: 100% 0;
   animation: ci-in 0.6s var(--glide) 0.15s both;
   transition:
@@ -1306,12 +1277,12 @@ input {
 }
 
 
-/* the preview is pulled out with the finger, no page panning in the way */
+/* no page panning while pulling the preview */
 .ci {
   touch-action: none;
 }
 
-/* press on the small island: it gives a little before opening */
+/* press gives a little before opening */
 .ci:not([data-open]):has(.ci__compact:active) {
   scale: 0.94;
   transition:
@@ -1334,7 +1305,7 @@ input {
   --ease: var(--spring-open);
 }
 
-/* preview floating outside: a narrow column of buttons */
+/* preview floating outside: narrow column of buttons */
 .ci[data-undocked] {
   --open-w: 84px;
   --open-h: min(286px, calc(100dvh - 40px));
@@ -1372,12 +1343,11 @@ input {
     scale 0.32s var(--ease-out);
 }
 
-/* camera off pushes the bars up and the icon in below them, while the island grows.
-   Transforms only. */
+/* camera off: bars move up, icon in below. Transforms only */
 .ci__camoff {
   opacity: 0;
   scale: 0.4;
-  /* same clock as the island's height, so the icon, the bars and the shape move as one */
+  /* same timing as the island height */
   transition:
     translate var(--dur) var(--ease),
     opacity 200ms ease,
@@ -1389,8 +1359,7 @@ input {
   scale: 1;
 }
 
-/* my mic, on the small island only. Anchored to the middle of the right edge, it moves with
-   the island's own timing (camera off pushes it up); opening, it fades out on the spot */
+/* my mic, small island only */
 .ci__eq {
   position: absolute;
   z-index: 3;
@@ -1436,8 +1405,7 @@ input {
     visibility 0s;
 }
 
-/* opening: preview, then the name, then the buttons, coming in from the right edge.
-   Closing: all out at once, fast */
+/* opening: preview, name, buttons in order. Closing: all at once */
 .ci__full > * {
   opacity: 0;
   translate: 14px 0;
@@ -1464,7 +1432,7 @@ input {
   --d: 100ms;
 }
 
-/* pin: keeps the island open. Over the preview, top right; first in the column */
+/* pin: keeps the island open */
 .ci__pin {
   position: absolute;
   z-index: 2;
@@ -1510,7 +1478,7 @@ input {
 .ci[data-undocked] .ci__pin[aria-pressed="true"] {
   background: #fff;
 }
-/* kept mounted (no black frame when it comes back), just out of the way */
+/* kept mounted, just out of the way */
 .ci[data-undocked] .ci__preview {
   position: absolute;
   visibility: hidden;
@@ -1558,16 +1526,13 @@ input {
   border-radius: 24px;
 }
 
-/* the videos, the label and the swap button, as one layer that can step aside.
-   Coming back it's instant: a landing tile covers it and fades away on top, a fade here too
-   would let both be half-transparent for a moment (the picture dims) */
+/* videos + label + swap as one layer; coming back it's instant, the landing tile covers it */
 .ci__slotfill {
   position: absolute;
   inset: 0;
 }
 
-/* a tile is coming back: the slot empties and glows, the shape is the slot itself
-   (inside the island), so nothing fights the inverse corners */
+/* a tile is coming back: the slot empties and glows */
 .ci__drop {
   position: absolute;
   inset: 0;
@@ -1581,7 +1546,7 @@ input {
     opacity 160ms ease,
     scale 420ms var(--spring);
 }
-/* preview pulled out: the slot empties at once, the tile is the picture now */
+/* preview pulled out: slot empties at once */
 .ci[data-out] .ci__slotfill {
   opacity: 0;
   transition: none;
@@ -1607,7 +1572,7 @@ input {
   }
 }
 
-/* hover ring, on top of the videos */
+/* hover ring over the videos */
 .ci__preview::after {
   content: "";
   position: absolute;
@@ -1644,7 +1609,6 @@ input {
   display: grid;
   place-items: center;
   background: rgba(23, 24, 28, 0.88);
-  /* turns with the slide, follows the finger too */
   rotate: calc(var(--pos) * 180deg);
   transition:
     rotate 520ms var(--ease-out),
@@ -1704,13 +1668,13 @@ input {
   box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.12);
 }
 
-/* ---------- phones: the bottom bar instead of the side island ---------- */
+/* ---------- phones: bottom bar ---------- */
 
-/* one row: mic, camera, hang up, and the other video as a button of the same size */
+/* mic, camera, hang up, other video */
 .cbar {
   --r: 32px;
   --f: 24px;
-  /* over the split targets: you can always see where the tile goes back to */
+  /* above the split targets */
   z-index: 23;
   animation: rise 0.6s var(--glide) 0.15s both;
 }
@@ -1749,7 +1713,7 @@ input {
   height: 30px;
   font-size: 13px;
 }
-/* the picture: instant back (a landing tile covers it), it only ever steps aside quickly */
+/* instant back, a landing tile covers it */
 .cbar__fill {
   position: absolute;
   inset: 0;
@@ -1768,19 +1732,19 @@ input {
   scale: 0.92;
   transition: scale 90ms ease-out;
 }
-/* the tile is out in your hand: an empty slot waiting for it */
+/* tile out: empty slot */
 .cbar__preview[data-out] .cbar__fill {
   opacity: 0;
 }
 .cbar__preview[data-out]::after {
   box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.22);
 }
-/* ... and it's right over the bar: let go and it's back */
+/* tile over the bar: let go and it's back */
 .cbar__preview[data-receiving]::after {
   box-shadow: inset 0 0 0 1.5px rgba(48, 209, 88, 0.85);
   animation: slot-breathe 1.4s ease-in-out infinite;
 }
-/* split view: both videos are big already, the button means "one screen again" */
+/* split: the button means one screen again */
 .cbar__unsplit {
   position: absolute;
   inset: 0;
@@ -1802,7 +1766,7 @@ input {
   opacity: 1;
   scale: 1;
 }
-/* tap on the video: the bar tucks away below the screen for a clean picture, tap again: back */
+/* tap on the video hides the bar */
 .cbar {
   transition: transform 460ms var(--glide);
 }
@@ -1811,13 +1775,87 @@ input {
   transition: transform 420ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 
-/* the tile on a phone only lives in your hand: no corner grips, no dock button */
+/* phone on its side: column on the port side, turned with the phone */
+.island--left {
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+}
+.island--left .island__body {
+  border-radius: 0 var(--r) var(--r) 0;
+}
+.island--left .island__fillet {
+  left: 0;
+  width: var(--f);
+  height: calc(var(--f) + 1px);
+}
+.island--left .island__fillet--a {
+  bottom: calc(100% - 1px);
+  background: radial-gradient(circle at 100% 0, var(--g));
+}
+.island--left .island__fillet--b {
+  top: calc(100% - 1px);
+  background: radial-gradient(circle at 100% 100%, var(--g));
+}
+.cbar:is([data-side="left"], [data-side="right"]) .cbar__row {
+  flex-direction: column;
+  padding: 14px 12px;
+}
+.cbar[data-side="right"] .cbar__row {
+  flex-direction: column-reverse;
+  padding-right: max(12px, env(safe-area-inset-right));
+}
+.cbar[data-side="left"] .cbar__row {
+  padding-left: max(12px, env(safe-area-inset-left));
+}
+.cbar:is([data-side="left"], [data-side="right"]) .cbar__hangup {
+  width: 56px;
+  height: 76px;
+}
+.cbar[data-side="right"] {
+  animation-name: rise-right;
+}
+.cbar[data-side="left"] {
+  animation-name: rise-left;
+}
+@keyframes rise-right {
+  from {
+    translate: calc(100% - 1px) 0;
+  }
+}
+@keyframes rise-left {
+  from {
+    translate: calc(-100% + 1px) 0;
+  }
+}
+.cbar[data-side="right"][data-hidden] {
+  transform: translate(calc(100% + 32px), -50%);
+}
+.cbar[data-side="left"][data-hidden] {
+  transform: translate(calc(-100% - 32px), -50%);
+}
+
+/* clock goes to the camera's side */
+html[data-call-island] .island--float {
+  top: 50%;
+  transform: translateY(-50%);
+}
+html[data-call-island="left"] .island--float {
+  left: max(12px, env(safe-area-inset-left));
+}
+html[data-call-island="right"] .island--float {
+  left: auto;
+  right: max(12px, env(safe-area-inset-right));
+  transform-origin: 100% 0;
+}
+
+/* phones: no grips, no dock button */
 .pip[data-phone] .pip__dock,
 .pip[data-phone] .pip__grip {
   display: none;
 }
 
-/* ---------- floating preview (pulled out of the island) ---------- */
+/* ---------- floating preview ---------- */
 
 .pip {
   --px: 0px;
@@ -1826,7 +1864,7 @@ input {
   position: fixed;
   left: 0;
   top: 0;
-  /* above the island: it flies into the slot over it */
+  /* above the island, it flies into the slot over it */
   z-index: 25;
   width: var(--pw);
   height: var(--ph, calc(var(--pw) * 1.2));
@@ -1836,7 +1874,7 @@ input {
   opacity: 0;
   visibility: hidden;
   scale: 0.8;
-  /* hiding = docking: shrinks and fades toward the island */
+  /* hiding = docking: shrinks toward the island */
   transition:
     transform 460ms var(--spring),
     width 460ms var(--spring),
@@ -1849,7 +1887,6 @@ input {
   opacity: 1;
   visibility: visible;
   scale: 1;
-  /* showing = pulled out: it is already where the preview was, nothing to animate in */
   transition:
     transform 460ms var(--spring),
     width 460ms var(--spring),
@@ -1858,7 +1895,7 @@ input {
     scale 0s,
     visibility 0s;
 }
-/* under the finger: follows it 1:1. Shows up at once, it is exactly where the picture was */
+/* under the finger: follows 1:1 */
 .pip[data-dragging] {
   cursor: grabbing;
   transition:
@@ -1888,22 +1925,20 @@ input {
 .pip__frame .slide {
   border-radius: inherit;
 }
-/* in the air: it's going somewhere, a grab now would fight the landing */
+/* in the air: no grabbing */
 .pip[data-flying] {
   pointer-events: none;
 }
-/* landing: the shadow settles into the island, no lift */
 .pip[data-flying] .pip__frame {
   box-shadow: 0 0 0 0 rgba(0, 0, 0, 0);
 }
-/* landed: the real preview is right under it, just let go of it */
 .pip[data-flying]:not([data-shown]) {
   scale: 1;
   transition:
     opacity 160ms ease,
     visibility 0s linear 160ms;
 }
-/* picked up: lifts a little, the shadow grows */
+/* picked up: lifts a little */
 .pip[data-dragging] .pip__frame {
   scale: 1.03;
   box-shadow:
@@ -1911,12 +1946,12 @@ input {
     0 0 0 0.5px rgba(255, 255, 255, 0.16);
 }
 
-/* over the island: it gets pulled in, let go and it's back inside */
+/* over the island: let go and it's back */
 .pip[data-over-dock] .pip__frame {
   scale: 0.92;
   opacity: 0.92;
 }
-/* over the split target: steps back a little, the target says what happens */
+/* over a split target: steps back a little */
 .pip[data-over-split] .pip__frame {
   scale: 0.9;
   opacity: 0.85;
@@ -1943,7 +1978,7 @@ input {
     scale 420ms var(--spring);
 }
 
-/* invisible corner handles, the cursor says what they do */
+/* invisible corner handles */
 .pip__grip {
   position: absolute;
   z-index: 3;
@@ -1988,7 +2023,6 @@ input {
   transition: scale 90ms ease-out;
 }
 
-/* time + quality bars under the name */
 .ci__meta {
   display: flex;
   align-items: center;
@@ -2042,7 +2076,7 @@ input {
   background: var(--on);
 }
 
-/* getStats numbers, top-left over the video (bottom-left on phones, the top island is there) */
+/* getStats numbers, top-left (bottom-left on phones) */
 .stats {
   position: absolute;
   left: 16px;
@@ -2082,7 +2116,6 @@ input {
   }
 }
 
-/* home: waiting room switch, right of the tongue */
 .toggle {
   display: flex;
   align-items: center;
@@ -2098,7 +2131,6 @@ input {
   white-space: nowrap;
 }
 
-/* narrow card (content box): label above the switch */
 @container card (max-width: 316px) {
   .toggle {
     flex-direction: column;
@@ -2147,12 +2179,7 @@ input {
   transform-origin: 100% 50%;
 }
 
-/* ---------- interaction states ----------
-   One recipe for everything you can press:
-   - hover only with a real mouse, so nothing stays "hovered" after a tap on a phone
-   - hover comes in fast, goes away a bit slower: responsive, but no flicker
-   - press = quick small shrink, release = spring back
-   - only colors, opacity and transforms change, never sizes, so nothing around moves */
+/* ---------- interaction states ---------- hover only with a mouse, press = shrink, release = spring, only colors / opacity / transforms */
 
 :root {
   --in: 120ms;
@@ -2187,7 +2214,6 @@ input {
   transition: translate 420ms var(--spring);
 }
 
-/* mic / camera slash draws in and out */
 .slash {
   stroke-dasharray: 1 2;
   stroke-dashoffset: 1;
@@ -2211,7 +2237,7 @@ input {
   }
 }
 
-/* an icon that replaces another (keyed): pops in, the swap never looks like a cut */
+/* replacing icon pops in */
 .icon-in {
   animation: icon-in 300ms var(--spring) both;
 }
@@ -2290,7 +2316,6 @@ input {
     transition-duration: var(--in);
   }
 
-  /* the tongue reaches a bit further, the plus turns */
   .notch__btn:hover::before {
     translate: 6px 0;
   }
@@ -2315,7 +2340,7 @@ input {
   }
 }
 
-/* press: after hover, so it wins while the mouse is down */
+/* press after hover, so it wins */
 :is(.round, .glass, .chip, .hangup, .joinbar__go, .codefield button, .ci__quality, .notice--btn):not(:disabled):active {
   scale: 0.92;
   transition:
@@ -2325,12 +2350,11 @@ input {
     opacity var(--in) ease,
     scale 90ms ease-out;
 }
-/* wide ones shrink less, or it looks like they fall in */
+/* wide ones shrink less */
 :is(.hangup, .joinbar__go, .notice--btn):not(:disabled):active {
   scale: 0.96;
 }
 
-/* the right end pulls back a little; the left end is clipped at the card edge, so it never moves */
 .notch__btn:not([aria-busy="true"]):active::before {
   translate: -5px 0;
   transition: translate 120ms ease-out;
@@ -2344,22 +2368,21 @@ input {
     scale 90ms ease-out;
 }
 
-/* iOS-like: the knob stretches while held */
+/* iOS-like: knob stretches while held */
 .switch:active::after {
   scale: 1.18 1;
 }
 
 /* ---------- phones ---------- */
 
-/* phones (same breakpoints as usePhone): videos go edge to edge, square corners */
+/* phones (same as usePhone): square video corners */
 @media (max-width: 640px), (max-height: 500px) {
   :root {
     --video-r: 0px;
   }
 }
 
-/* phones: one screen, no scrolling. The card takes what its content needs at the bottom,
-   the camera gets all the rest above it */
+/* phones: one screen, camera on top, card at the bottom */
 @media (max-width: 760px) {
   .home {
     flex-direction: column;
@@ -2382,12 +2405,10 @@ input {
     flex: none;
     width: auto;
     min-height: 0;
-    /* on the bottom edge, no gap under it; the home indicator's room is inside it */
+    /* on the bottom edge, home indicator room inside */
     margin: 10px 10px 0;
     padding: 20px 22px 0;
-    /* 60 / 40: the camera gets 60% of the screen, this panel at least the other 40% (the
-       camera gives way if the panel needs more on a tiny screen). Logo up top, the code at
-       the bottom, the actions in between */
+    /* camera 60%, card at least 40% */
     min-height: calc(40% - 10px);
     justify-content: space-between;
     border-radius: var(--frame-r) var(--frame-r) 0 0;
@@ -2406,13 +2427,12 @@ input {
     font-size: 15px;
     line-height: 20px;
   }
-  /* compact: one line of tagline, no footnote */
+  /* compact: no footnote */
   .home__more,
   .home__e2e {
     display: none;
   }
 
-  /* the row joins the flow, the tongue still glued to the left edge of the card */
   .home__actions {
     position: relative;
     top: auto;
@@ -2437,7 +2457,7 @@ input {
     height: 50px;
   }
 
-  /* air under the code field inside the card, plus the home indicator's room on iPhones */
+  /* room for the home indicator */
   .home__bottom {
     margin-top: 0;
     padding-bottom: calc(38px + env(safe-area-inset-bottom));
@@ -2448,7 +2468,7 @@ input {
   }
 }
 
-/* short phones: the tagline goes, the camera keeps a useful size */
+/* short phones: no tagline */
 @media (max-width: 760px) and (max-height: 700px) {
   .home__tagline {
     display: none;
@@ -2458,7 +2478,7 @@ input {
   }
 }
 
-/* phones on their side (and other low windows): the side-by-side home, squeezed to fit */
+/* phones on their side: side-by-side home, squeezed */
 @media (min-width: 761px) and (max-height: 600px) {
   .home__preview,
   .home__card {
@@ -2513,7 +2533,7 @@ input {
     transform-origin: 0 100%;
   }
 
-  /* bar is too wide for a phone: name on top, buttons under it */
+  /* phones: name on top, buttons under it */
   .joinbar {
     width: calc(100% - 48px);
     --r: 30px;
@@ -2559,9 +2579,7 @@ input {
   }
 }
 
-/* ---------- the camera between pages ----------
-   One live video for the whole app (CameraLayer), above the pages' backgrounds and under their
-   controls. Pages only mark its spot; it moves and resizes itself, live, the moment you tap */
+/* ---------- camera between pages ---------- one live video for the app (CameraLayer), pages mark its spot */
 .camlayer {
   position: fixed;
   z-index: 1;
@@ -2583,7 +2601,7 @@ input {
     border-radius 560ms var(--glide),
     opacity 200ms ease;
 }
-/* the camera's picture zooms in step with the move (same time, same curve) */
+/* zooms in step with the move */
 .camlayer .video[data-fit="contain"] {
   transition:
     opacity 180ms ease,
@@ -2593,7 +2611,7 @@ input {
   transition: opacity 180ms ease;
 }
 
-/* pages with the camera: see-through where it is, their controls over it */
+/* camera pages: see-through, controls over it */
 .home,
 .join {
   z-index: 2;
@@ -2603,14 +2621,14 @@ input {
   background: transparent;
 }
 
-/* off to a room: the card slides aside (down on phones) as the camera takes the screen */
+/* off to a room: card slides away */
 .home[data-leaving] .home__card {
   animation: card-out 150ms cubic-bezier(0.4, 0, 0.6, 1) both;
 }
 .home[data-leaving] .home__controls {
   animation: fade-out 120ms ease both;
 }
-/* back from a room: it slides back in while the camera settles into its panel */
+/* back from a room: card slides back in */
 .home[data-entering] .home__card {
   animation: card-in 520ms var(--glide) both;
 }
@@ -2654,7 +2672,7 @@ input {
   }
 }
 
-/* hang up: the call fades away over the camera, which is already gliding home */
+/* hang up: call fades, camera glides home */
 .call[data-leaving] {
   z-index: 3;
   pointer-events: none;

@@ -19,54 +19,46 @@ export type SplitSide = "a" | "b";
 export type SplitOffer = { side: SplitSide | null } | null;
 
 export interface GrabOptions {
-  // started over the island: docking waits until the tile has left it once
+  // started over the island: no docking until it left it once
   fromIsland?: boolean;
-  // started from something of another size (a split half, the phone bar's button): grows
-  // or shrinks from this scale around the finger, from these corners
+  // started from something of another size: grows / shrinks from this scale
   fromScale?: number;
   fromRadius?: number;
 }
 
 export interface PipHandle {
-  // carry on a drag that started somewhere else (the island preview, a split half)
+  // carry on a drag started elsewhere
   grab: (pointerId: number, from: PipRect, offsetX: number, offsetY: number, opts?: GrabOptions) => void;
-  // fly into a slot (the island preview, a split half) and take its corners, then call done
+  // fly into a slot, then call done
   flyTo: (to: { x: number; y: number; w: number; h: number }, done: () => void, radius?: number) => void;
 }
 
-// split view: halves side by side on a wide screen, stacked on a tall one
+// split: side by side on wide screens, stacked on tall ones
 export const splitVertical = () => window.innerHeight > window.innerWidth;
 
-// corner radius of the big videos, from the css (smaller on phones)
+// corner radius of the big videos, from the css
 export const frameRadius = () =>
   parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--video-r")) || 0;
 
-// split view starts at the left edge (the top one on a tall screen): push the tile into it
-// and hold. It has to be a clear push (well past the edge), held for a moment, and not into
-// a corner, so parking the tile there never splits by accident. Then both halves show up and
-// the one under the pointer is where the tile goes. The right edge is the island's, docking
-// never fights a split there
+// split: push the tile into the left (top) edge and hold. Not in a corner, so parking there never splits
 const SPLIT_PUSH = 48;
-// a finger can't go past the screen: the finger at the very edge with the tile pressed
-// against it counts as a push too
+// finger at the very edge with the tile pressed in counts as a push
 const SPLIT_EDGE = 18;
 const SPLIT_PRESSED = 6;
 const SPLIT_CORNER = 28;
 const SPLIT_HOLD = 280;
-// halves on offer: this close to the middle line neither is picked, dropping there = no split
+// this close to the middle line no half is picked
 const SPLIT_NEUTRAL = 60;
-// with the halves on offer the tile is often near the island while aiming for the right half:
-// then only the pointer on the island (a little slack) means "put it back in"
+// halves on offer: only the pointer on the island means docking
 const DOCK_REACH_X = 56;
 const DOCK_REACH_Y = 56;
 
-// same shape as the island preview
 export const PIP_RATIO = 1.2;
 const MIN_W = 140;
 const MARGIN = 12;
 const maxW = () => Math.min(520, window.innerWidth * 0.45, (window.innerHeight - MARGIN * 2) / PIP_RATIO);
 
-// past the screen edge it still follows, but heavier, like iOS scroll views
+// rubber band past the edges
 const rubber = (v: number, min: number, max: number) =>
   v < min ? min - (min - v) * 0.35 : v > max ? max + (v - max) * 0.35 : v;
 
@@ -86,21 +78,16 @@ interface Props {
   remote: RemoteParticipant | null;
   remoteName: string;
   onChange: (r: PipRect) => void;
-  // dropped on the island or the dock button: the parent opens the slot and calls flyTo
+  // dropped on the island: parent opens the slot and calls flyTo
   onDockRequest: () => void;
   onSwap: () => void;
-  // island rect, to drop the tile back into it
   dockTarget: () => DOMRect | null;
   onDockHover: (over: boolean) => void;
-  // split view on offer (someone to split with)
   canSplit: boolean;
-  // pushed against the left edge long enough: both halves on offer, side = the one under the
-  // pointer (null = none, the middle line or the island). null = nothing on offer
+  // side = the half under the pointer, null = nothing on offer
   onSplitHover: (offer: SplitOffer) => void;
-  // dropped over a half
   onSplitRequest: (side: SplitSide) => void;
-  // phones: the tile only exists in your hand. Both halves are on offer right away, and
-  // anywhere but a half it flies back into the bar
+  // phones: no free tile, it's either split or back in the bar
   phone: boolean;
   ref?: Ref<PipHandle>;
 }
@@ -111,11 +98,7 @@ type Session =
   | { kind: "resize"; id: number; sx: number; sy: number; start: PipRect; dirX: 1 | -1; dirY: 1 | -1 }
   | { kind: "pinch"; d0: number; start: PipRect };
 
-/**
- * Your preview pulled out of the island: free on the screen, over the big video.
- * Drag to move, corners / wheel / pinch to resize, tap to swap, drop on the island to dock.
- * Always mounted, so pulling it out never waits for a first video frame.
- */
+/** Your preview pulled out of the island: drag, resize, tap to swap, drop on the island to dock. */
 export function FloatingPreview({
   rect,
   media,
@@ -138,9 +121,8 @@ export function FloatingPreview({
   const session = useRef<Session | null>(null);
   const touches = useRef(new Map<number, { x: number; y: number }>());
   const overDock = useRef(false);
-  // false right after it leaves the island: it is still on top of it, that's not a drop
+  // false right after leaving the island, it's still on top of it
   const dockArmed = useRef(true);
-  // split: the hold against the left edge, then the halves on offer and the picked one
   const push = useRef<ReturnType<typeof setTimeout> | null>(null);
   const offer = useRef<SplitOffer>(null);
   const rectRef = useRef(rect);
@@ -159,7 +141,7 @@ export function FloatingPreview({
   });
   cb.current = { onChange, onDockRequest, onSwap, dockTarget, onDockHover, canSplit, onSplitHover, onSplitRequest, phone };
 
-  // position lives in css variables, written directly while dragging
+  // position lives in css vars, written directly while dragging
   const write = (r: PipRect) => {
     cur.current = r;
     const s = el.current?.style;
@@ -174,7 +156,6 @@ export function FloatingPreview({
     const appeared = Boolean(rect) && !wasShown.current;
     wasShown.current = Boolean(rect);
     if (!rect) return;
-    // shown again: forget the landing shape from last time
     const node = el.current;
     if (node?.hasAttribute("data-flying")) {
       node.removeAttribute("data-flying");
@@ -183,8 +164,7 @@ export function FloatingPreview({
     }
     if (session.current) return;
     write(rect);
-    // shown without a hand on it (the layout from last time): it grows in on its spot.
-    // Pulled out by hand it is already where the picture was, nothing to animate
+    // shown without a hand on it: grows in on its spot
     if (appeared) {
       node?.querySelector(".pip__frame")?.animate([{ opacity: 0, scale: "0.86" }, { opacity: 1, scale: "1" }], {
         duration: 460,
@@ -193,7 +173,6 @@ export function FloatingPreview({
     }
   }, [rect]);
 
-  // lift and the dock pull-in happen around the point under the finger
   const grabPoint = (x: number, y: number) => {
     el.current?.style.setProperty("--gx", `${x}px`);
     el.current?.style.setProperty("--gy", `${y}px`);
@@ -203,21 +182,19 @@ export function FloatingPreview({
     if (!el.current) return;
     if (on) el.current.dataset.dragging = "";
     else delete el.current.dataset.dragging;
-    // the island stops reacting to hover while the tile is in your hand
+    // island ignores hover while dragging
     document.documentElement.toggleAttribute("data-pip-drag", on);
   };
 
-  // the tile touches the island (with a little reach): it goes back in. Once the island opens
-  // to receive, its box is bigger, so pulling a bit back doesn't cancel right away.
-  // With the split halves on offer it takes the pointer on the island (see DOCK_REACH)
+  // tile touching the island = goes back in
   const checkDock = (px: number, py: number) => {
     const r = cb.current.dockTarget();
     const t = cur.current;
     const reach = 24;
     let over = false;
     if (r && cb.current.phone) {
-      // phones: the finger back on the bar
-      over = px >= r.left - 20 && px <= r.right + 20 && py >= r.top - 28;
+      // phones: finger back on the bar
+      over = px >= r.left - 24 && px <= r.right + 24 && py >= r.top - 28 && py <= r.bottom + 28;
     } else if (r && offer.current && !overDock.current) {
       over = px >= window.innerWidth - DOCK_REACH_X && Math.abs(py - (r.top + r.bottom) / 2) <= r.height / 2 + DOCK_REACH_Y;
     } else if (r) {
@@ -250,28 +227,27 @@ export function FloatingPreview({
     setOffer(null);
   };
 
-  // which half the pointer is over, none near the middle line or while docking
+  // half under the pointer. Phones: no dead middle, a drop always picks the lit half
   const pickHalf = (px: number, py: number): SplitSide | null => {
     if (overDock.current) return null;
     const vert = splitVertical();
     const p = vert ? py : px;
     const mid = (vert ? window.innerHeight : window.innerWidth) / 2;
-    return p < mid - SPLIT_NEUTRAL ? "a" : p > mid + SPLIT_NEUTRAL ? "b" : null;
+    const neutral = cb.current.phone ? 0 : SPLIT_NEUTRAL;
+    return p < mid - neutral ? "a" : p >= mid + neutral ? "b" : null;
   };
 
-  // raw = where the tile would be without the edge rubber band; px, py = the pointer
+  // raw = tile pos without rubber band; px, py = pointer
   const checkSplit = (rawX: number, rawY: number, px: number, py: number) => {
-    // phones: the halves are on offer the whole time the tile is in your hand
+    // phones: halves on offer the whole drag
     if (cb.current.phone) return setOffer(cb.current.canSplit ? { side: pickHalf(px, py) } : null);
-    // nobody to split with, or still on top of the island it came out of
     if (!cb.current.canSplit || !dockArmed.current) return resetSplit();
-    // halves already on offer: just follow the pointer
     if (offer.current) return setOffer({ side: pickHalf(px, py) });
     if (overDock.current) return stopPush();
     const w = cur.current.w;
     const h = w * PIP_RATIO;
     const vert = splitVertical();
-    // how far past the left (top) edge, and past the edges across it (a corner)
+    // how far past the edge, and into a corner
     const depth = vert ? MARGIN - rawY : MARGIN - rawX;
     const across = vert
       ? Math.max(MARGIN - rawX, rawX + w - (window.innerWidth - MARGIN))
@@ -292,7 +268,6 @@ export function FloatingPreview({
     const was = session.current;
     session.current = null;
     setDragging(false);
-    // the halves go away whatever happens now
     const side = offer.current?.side;
     const canSplit = cb.current.canSplit;
     resetSplit();
@@ -314,7 +289,6 @@ export function FloatingPreview({
         cb.current.onDockRequest();
         return;
       }
-      // spring back on screen
       const r = clampPip(cur.current);
       write(r);
       cb.current.onChange(r);
@@ -331,7 +305,6 @@ export function FloatingPreview({
         if (!a || !b) return;
         const d = Math.hypot(a.x - b.x, a.y - b.y);
         const w = Math.max(MIN_W * 0.8, Math.min(maxW() * 1.1, (s.start.w * d) / s.d0));
-        // around the tile center
         const cx = s.start.x + s.start.w / 2;
         const cy = s.start.y + (s.start.w * PIP_RATIO) / 2;
         write({ x: cx - w / 2, y: cy - (w * PIP_RATIO) / 2, w });
@@ -358,8 +331,7 @@ export function FloatingPreview({
         checkDock(e.clientX, e.clientY);
         checkSplit(rawX, rawY, e.clientX, e.clientY);
       } else if (m?.kind === "resize") {
-        // keep the ratio, the opposite corner stays put. The pointer is projected on the
-        // corner's diagonal, so any direction of the hand feels right
+        // keep the ratio, opposite corner stays put
         const along = ((e.clientX - m.sx) * m.dirX + (e.clientY - m.sy) * m.dirY * PIP_RATIO) / (1 + PIP_RATIO * PIP_RATIO);
         const w = Math.max(MIN_W * 0.85, Math.min(maxW() * 1.08, m.start.w + along));
         const x = m.dirX < 0 ? m.start.x + m.start.w - w : m.start.x;
@@ -376,7 +348,7 @@ export function FloatingPreview({
         return;
       }
       if (e.pointerId !== s.id) return;
-      // no movement = a tap: swap, like the island preview
+      // no movement = tap = swap
       if (s.kind === "pending") {
         session.current = null;
         if (e.type === "pointerup") cb.current.onSwap();
@@ -384,7 +356,7 @@ export function FloatingPreview({
       }
       finish();
     };
-    // Esc with the halves on offer: changed your mind, the tile just stays in your hand
+    // Esc: cancel the split offer
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" && (offer.current || push.current)) {
         e.stopPropagation();
@@ -405,13 +377,13 @@ export function FloatingPreview({
     // reads everything through refs
   }, []);
 
-  // nobody to split with anymore (they left mid-drag): the target goes away at once
+  // they left mid-drag: drop the offer
   useEffect(() => {
     if (!canSplit) resetSplit();
-    // resetSplit only touches refs and the callback
+    // resetSplit only touches refs
   }, [canSplit]);
 
-  // wheel / trackpad pinch resizes around the center. Native listener: react's is passive.
+  // wheel / pinch resize. Native listener: react's is passive
   useEffect(() => {
     const node = el.current;
     if (!node) return;
@@ -439,7 +411,6 @@ export function FloatingPreview({
     };
   }, []);
 
-  // a drag that started in the island keeps going here
   useImperativeHandle(ref, () => ({
     grab: (pointerId, from, offX, offY, opts = {}) => {
       const node = el.current;
@@ -452,10 +423,9 @@ export function FloatingPreview({
       session.current = { kind: "move", id: pointerId, offX, offY };
       setDragging(true);
       lastPointer.current = { x: from.x + offX, y: from.y + offY };
-      // phones: both halves show up the moment it's in your hand
+      // phones: halves show up right away
       if (cb.current.phone && cb.current.canSplit) setOffer({ side: pickHalf(from.x + offX, from.y + offY) });
-      // out of something of another size: starts as big as that was and turns into the tile
-      // in the hand (a split half shrinks, the bar's button grows)
+      // grows / shrinks from the size it came out of
       const frame = node?.querySelector<HTMLElement>(".pip__frame");
       if (frame && opts.fromScale && Math.abs(opts.fromScale - 1) > 0.01) {
         const s = opts.fromScale;
@@ -478,7 +448,6 @@ export function FloatingPreview({
       node.setAttribute("data-flying", "");
       node.removeAttribute("data-over-dock");
       node.removeAttribute("data-over-split");
-      // the slot's own shape: its height and corners
       node.style.setProperty("--ph", `${to.h}px`);
       node.style.setProperty("--pr", `${radius}px`);
       write({ x: to.x, y: to.y, w: to.w });
@@ -571,7 +540,6 @@ export function FloatingPreview({
           <DockIcon size={16} />
         </button>
       </div>
-      {/* resize grips, one per corner */}
       <span className="pip__grip pip__grip--nw" onPointerDown={startResize(-1, -1)} aria-hidden />
       <span className="pip__grip pip__grip--ne" onPointerDown={startResize(1, -1)} aria-hidden />
       <span className="pip__grip pip__grip--sw" onPointerDown={startResize(-1, 1)} aria-hidden />
