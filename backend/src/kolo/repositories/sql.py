@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -47,6 +47,13 @@ class SqlRoomRepository:
 
     async def get_by_code(self, code: str) -> Room | None:
         async with self._sessions() as session:
+            row = await session.scalar(select(RoomRow).where(RoomRow.code == code))
+            return _to_domain(row) if row else None
+
+    async def set_lobby(self, code: str, enabled: bool) -> Room | None:
+        async with self._sessions() as session:
+            await session.execute(update(RoomRow).where(RoomRow.code == code).values(lobby_enabled=enabled))
+            await session.commit()
             row = await session.scalar(select(RoomRow).where(RoomRow.code == code))
             return _to_domain(row) if row else None
 

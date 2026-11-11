@@ -22,6 +22,7 @@ class RoomTokenClaims(BaseModel):
     role: Role
     iat: int
     exp: int
+    cid: str | None = None  # client id, see Peer.client_id
 
 def new_secret() -> str:
     """256 bits of randomness, url-safe."""
@@ -38,7 +39,13 @@ def verify_secret(secret: str, expected_hash: str) -> bool:
     return hmac.compare_digest(hash_secret(secret), expected_hash)
 
 def create_room_token(
-    settings: Settings, *, room: str, participant_id: str, name: str, role: Role
+    settings: Settings,
+    *,
+    room: str,
+    participant_id: str,
+    name: str,
+    role: Role,
+    client_id: str | None = None,
 ) -> str:
     now = int(time.time())
     claims = RoomTokenClaims(
@@ -46,11 +53,12 @@ def create_room_token(
         room=room, 
         name=name, 
         role=role,
+        cid=client_id,
         iat=now, 
         exp=now + settings.jwt_ttl_seconds,
     )
     return jwt.encode(
-        claims.model_dump(mode="json"),
+        claims.model_dump(mode="json", exclude_none=True),
         settings.jwt_secret.get_secret_value(),
         algorithm=JWT_ALGORITHM,
     )

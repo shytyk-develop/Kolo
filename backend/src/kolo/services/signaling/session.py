@@ -294,7 +294,8 @@ class PeerSession:
         if not self.rejoined:
             self._events.emit(
                 "participant.joined",
-                {"room": self.room_code, **self.peer.to_dict()}
+                # no client_id: it's for the people in the call, not for integrations
+                {"room": self.room_code, "id": self.peer.id, "name": self.peer.name, "role": self.peer.role}
             )
 
     async def _leave(self) -> None:

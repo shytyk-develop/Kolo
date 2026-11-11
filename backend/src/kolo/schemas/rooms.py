@@ -29,9 +29,15 @@ class RoomPublicResponse(BaseModel):
     lobby_enabled: bool
     participants: int = 0
 
+class UpdateRoomRequest(BaseModel):
+    host_secret: str = Field(min_length=1, max_length=128)
+    lobby_enabled: bool
+
 class JoinRequest(BaseModel):
     display_name: str = Field(min_length=1, max_length=40)
     host_secret: str | None = Field(default=None, max_length=128)
+    # random per browser, the other side's recents use it to recognize this person
+    client_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9-]{8,64}$")
 
     @field_validator("display_name")
     @classmethod

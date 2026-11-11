@@ -387,3 +387,18 @@ def test_only_outages_become_503(settings: Settings, error: Exception, expected_
         )
 
     assert response.status_code == expected_status
+
+
+def test_peers_see_each_others_client_id(client):
+    room = create_room(client)
+    body = {"display_name": "Anya", "host_secret": room["host_secret"], "client_id": "browser-anya-0001"}
+    anya = client.post(f"/api/v1/rooms/{room['code']}/join", json=body).json()
+    borya = join(client, room["code"], "Borya")  # an old client: no id
+
+    with client.websocket_connect(ws_url(anya)) as ws_a:
+        assert ws_a.receive_json()["you"]["client_id"] == "browser-anya-0001"
+        with client.websocket_connect(ws_url(borya)) as ws_b:
+            welcome_b = ws_b.receive_json()
+            assert welcome_b["peers"][0]["client_id"] == "browser-anya-0001"
+            assert "client_id" not in welcome_b["you"]
+            assert "client_id" not in ws_a.receive_json()["peer"]

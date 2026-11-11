@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 
 from kolo.core.config import Settings
 from kolo.core.security import create_room_token, hash_secret, new_participant_id, new_secret, verify_secret
-from kolo.domain.errors import InvalidInput, RoomCodeTaken, RoomExpired, RoomFull, RoomNotFound
+from kolo.domain.errors import Forbidden, InvalidInput, RoomCodeTaken, RoomExpired, RoomFull, RoomNotFound
 from kolo.domain.models import Role, Room
 from kolo.domain.room_codes import generate_room_code, is_valid_room_code, normalize_room_code
 from kolo.infra.presence import PresenceStore
@@ -109,10 +109,22 @@ class RoomService:
             
         return room
 
+    async def set_lobby(self, raw_code: str, host_secret: str, enabled: bool) -> Room:
+        room = await self.get_room(raw_code)
+        if not verify_secret(host_secret, room.host_secret_hash):
+            raise Forbidden("Only the host can change the room")
+        # sessions already in keep their copy, new joins read this
+        updated = await self._repo.set_lobby(room.code, enabled)
+        if updated is None:
+            raise RoomNotFound()
+        return updated
+
     async def participants_count(self, room: Room) -> int:
         return await self._presence.count(room.code)
 
-    async def join(self, raw_code: str, display_name: str, host_secret: str | None) -> JoinTicket:
+    async def join(
+        self, raw_code: str, display_name: str, host_secret: str | None, client_id: str | None = None
+    ) -> JoinTicket:
         room = await self.get_room(raw_code)
 
         # quick check, the real one is in PeerSession._join (two clients can race here)
@@ -133,6 +145,7 @@ class RoomService:
             participant_id=participant_id,
             name=display_name, 
             role=role,
+            client_id=client_id,
         )
         
         return JoinTicket(

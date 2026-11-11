@@ -46,6 +46,13 @@ class CachedRoomRepository:
             await self._cache.set(f"room:{code}:meta", _dump(room), self._ttl)
         return room
 
+    async def set_lobby(self, code: str, enabled: bool) -> Room | None:
+        room = await self._inner.set_lobby(code, enabled)
+        # new joins must see it at once, not after the cache ttl
+        if room is not None:
+            await self._cache.set(f"room:{code}:meta", _dump(room), self._ttl)
+        return room
+
     async def delete_expired(self, older_than: datetime) -> int:
         # room_cleaner calls this on the outer repo, so pass it through.
         # stale cache dies by ttl, expired rooms are rejected by RoomService anyway

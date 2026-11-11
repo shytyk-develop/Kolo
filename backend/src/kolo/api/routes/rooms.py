@@ -11,6 +11,7 @@ from kolo.schemas.rooms import (
     JoinResponse,
     RoomCreatedResponse,
     RoomPublicResponse,
+    UpdateRoomRequest,
 )
 from kolo.services.sfu import sfu_token, uses_sfu
 
@@ -58,9 +59,22 @@ async def get_room(code: str, c: ContainerDep) -> RoomPublicResponse:
     )
 
 
+# host only: turn the waiting room on or off after the room is made
+@router.patch("/{code}", response_model=RoomPublicResponse)
+async def update_room(code: str, body: UpdateRoomRequest, c: ContainerDep) -> RoomPublicResponse:
+    room = await c.rooms.set_lobby(code, body.host_secret, body.lobby_enabled)
+    return RoomPublicResponse(
+        code=room.code,
+        name=room.name,
+        max_participants=room.max_participants,
+        lobby_enabled=room.lobby_enabled,
+        participants=await c.rooms.participants_count(room),
+    )
+
+
 @router.post("/{code}/join", response_model=JoinResponse, response_model_exclude_none=True)
 async def join_room(code: str, body: JoinRequest, c: ContainerDep) -> JoinResponse:
-    ticket = await c.rooms.join(code, body.display_name, body.host_secret)
+    ticket = await c.rooms.join(code, body.display_name, body.host_secret, body.client_id)
 
     media: dict = {}
     if uses_sfu(c.settings, ticket.room):

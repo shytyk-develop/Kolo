@@ -46,6 +46,16 @@ async def test_sql_repo_roundtrip(sql_repo):
     # unknown code -> None
     assert await sql_repo.get_by_code("zzz-zzzz-zzz") is None
 
+async def test_sql_repo_set_lobby(sql_repo):
+    await sql_repo.add(make_room())
+
+    updated = await sql_repo.set_lobby("abc-defg-hij", True)
+    assert updated is not None and updated.lobby_enabled is True
+    assert (await sql_repo.get_by_code("abc-defg-hij")).lobby_enabled is True
+    # unknown code -> None, nothing created
+    assert await sql_repo.set_lobby("zzz-zzzz-zzz", True) is None
+
+
 async def test_sql_repo_unique_code(sql_repo):
     await sql_repo.add(make_room())
     

@@ -218,3 +218,41 @@ def test_health_endpoints(client):
     assert client.get("/health").json() == {"status": "ok"}
     ready = client.get("/health/ready")
     assert ready.status_code == 200 and ready.json()["status"] == "ok"
+
+
+def test_host_turns_the_waiting_room_on_and_off(client):
+    room = create_room(client)
+    code, secret = room["code"], room["host_secret"]
+
+    on = client.patch(f"/api/v1/rooms/{code}", json={"host_secret": secret, "lobby_enabled": True})
+    assert on.status_code == 200, on.text
+    assert on.json()["lobby_enabled"] is True
+    # new visitors see it right away (no stale cache)
+    assert client.get(f"/api/v1/rooms/{code}").json()["lobby_enabled"] is True
+
+    off = client.patch(f"/api/v1/rooms/{code}", json={"host_secret": secret, "lobby_enabled": False})
+    assert off.json()["lobby_enabled"] is False
+    assert client.get(f"/api/v1/rooms/{code}").json()["lobby_enabled"] is False
+
+
+def test_only_the_host_changes_the_room(client):
+    room = create_room(client)
+    response = client.patch(
+        f"/api/v1/rooms/{room['code']}", json={"host_secret": "a-guessed-secret", "lobby_enabled": True}
+    )
+
+    assert response.status_code == 403
+    assert error_code(response) == "forbidden"
+    assert client.get(f"/api/v1/rooms/{room['code']}").json()["lobby_enabled"] is False
+
+
+def test_changing_an_unknown_room_is_404(client):
+    response = client.patch("/api/v1/rooms/zzz-zzzz-zzz", json={"host_secret": "x", "lobby_enabled": True})
+    assert response.status_code == 404
+
+
+@pytest.mark.parametrize("client_id", ["short", "has spaces in it", "x" * 65])
+def test_join_rejects_bad_client_ids(client, client_id):
+    code = create_room(client)["code"]
+    body = {"display_name": "Anya", "client_id": client_id}
+    assert client.post(f"/api/v1/rooms/{code}/join", json=body).status_code == 422
