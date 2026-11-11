@@ -244,13 +244,15 @@ def test_lost_listener_closes_sessions_and_reconnect_recovers(flaky) -> None:
         assert_try_again_later(ws_anya)
         assert_try_again_later(ws_boris)
 
-    # same tokens still work, room gets a new subscription
+    # same tokens still work, room gets a new subscription. The server dropped them, they
+    # didn't leave: both are still in the room (grace period) and come back as "rejoined"
     with connect(client, anya) as ws_anya:
-        assert ws_anya.receive_json()["peers"] == []
+        assert [p["id"] for p in ws_anya.receive_json()["peers"]] == [boris["participant_id"]]
 
         with connect(client, boris) as ws_boris:
             assert [p["id"] for p in ws_boris.receive_json()["peers"]] == [anya["participant_id"]]
-            assert ws_anya.receive_json()["type"] == "peer-joined"
+            back = ws_anya.receive_json()
+            assert back["type"] == "peer-joined" and back["rejoined"] is True
 
             ws_boris.send_json({"type": "offer", "to": anya["participant_id"], "sdp": "v=0"})
             assert ws_anya.receive_json() == {

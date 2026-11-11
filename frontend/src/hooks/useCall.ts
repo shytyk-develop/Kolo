@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { wsUrl } from "@/lib/api";
+import { dbg, dbgOnce } from "@/lib/debug";
 import { PeerLink } from "@/lib/peer";
 import { SignalingClient } from "@/lib/signaling";
 import type { JoinTicket, Peer, ServerMessage } from "@/lib/types";
@@ -50,6 +51,9 @@ export function useCall(ticket: JoinTicket | null, localStream: MediaStream | nu
 
   const links = useRef(new Map<string, PeerLink>());
   const signaling = useRef<SignalingClient | null>(null);
+  // for the message handler, which lives outside renders
+  const remotesRef = useRef(remotes);
+  remotesRef.current = remotes;
 
   const patchRemote = useCallback((id: string, patch: Partial<RemoteParticipant>) => {
     setRemotes((prev) => (prev[id] ? { ...prev, [id]: { ...prev[id], ...patch } } : prev));
@@ -81,17 +85,23 @@ export function useCall(ticket: JoinTicket | null, localStream: MediaStream | nu
         // who is polite, both sides decide the same way
         myId < peer.id,
         ticket.ice_servers,
-        (m) => signaling.current?.send(m),
+        (m) => {
+          if (m.type === "ice") dbgOnce("send: first ice");
+          else dbg(`send: ${m.type}`);
+          signaling.current?.send(m);
+        },
         (stream) => patchRemote(peer.id, { stream }),
         (state) => patchRemote(peer.id, { state }),
       );
       link.addLocalStream(localStream);
       links.current.set(peer.id, link);
+      dbg("link: created", { peer: peer.id });
       setRemotes((prev) => ({ ...prev, [peer.id]: prev[peer.id] ?? newRemote(peer) }));
       return link;
     };
 
     const dropPeer = (id: string) => {
+      if (links.current.has(id)) dbg("link: closed", { peer: id });
       links.current.get(id)?.close();
       links.current.delete(id);
       setRemotes((prev) => {
@@ -101,35 +111,69 @@ export function useCall(ticket: JoinTicket | null, localStream: MediaStream | nu
     };
 
     const dropAll = () => {
+      if (links.current.size) dbg("link: closed all", { count: links.current.size });
       links.current.forEach((link) => link.close());
       links.current.clear();
       setRemotes({});
     };
 
     const onMessage = async (msg: ServerMessage) => {
+      if (msg.type === "ice") dbgOnce("recv: first ice");
+      else if (msg.type !== "pong") dbg(`recv: ${msg.type}`, "from" in msg ? { from: msg.from } : undefined);
       switch (msg.type) {
-        case "welcome":
+        case "welcome": {
           attempt = 0;
-          // after a reconnect the others already dropped us, start clean
-          dropAll();
           setMe(msg.you);
           setStatus("in-call");
           setError(null);
           setLobby(msg.lobby ?? []);
-          // newcomer calls everyone already in the room
-          msg.peers.forEach(linkFor);
+          // after a reconnect: only the signaling dropped, the video may be fine. Keep every
+          // connection that still works, redo only the dead ones (before: all were torn down,
+          // the picture blinked out on every little drop). Not a "rejoined" (gone too long):
+          // the others closed theirs already, start fresh
+          if (!msg.rejoined) dropAll();
+          const here = new Set(msg.peers.map((p) => p.id));
+          [...links.current.keys()].forEach((id) => !here.has(id) && dropPeer(id));
+          msg.peers.forEach((peer) => {
+            const link = links.current.get(peer.id);
+            if (link?.alive) return dbg("link: kept", { peer: peer.id });
+            if (link) dropPeer(peer.id);
+            // newcomer (or a dead link) calls the ones already in the room
+            linkFor(peer);
+          });
           break;
-        case "peer-joined":
+        }
+        case "peer-joined": {
+          // back after a drop with the call still running: nothing to redo
+          const link = links.current.get(msg.peer.id);
+          if (link && msg.rejoined && link.alive) {
+            dbg("link: kept", { peer: msg.peer.id });
+            break;
+          }
+          // a new session of theirs means a new connection: theirs will come with an offer
+          if (link) dropPeer(msg.peer.id);
           // the link is made when the newcomer's offer comes, just show the tile for now
           setRemotes((prev) => ({ ...prev, [msg.peer.id]: prev[msg.peer.id] ?? newRemote(msg.peer) }));
           break;
+        }
         case "peer-left":
           dropPeer(msg.peer_id);
           break;
         case "offer":
         case "answer": {
-          const link = links.current.get(msg.from) ?? linkFor({ id: msg.from, name: "…", role: "guest" });
-          await link.handleDescription(msg.type, msg.sdp);
+          const known = links.current.get(msg.from);
+          const link = known ?? linkFor({ id: msg.from, name: "…", role: "guest" });
+          try {
+            await link.handleDescription(msg.type, msg.sdp);
+          } catch (err) {
+            // an offer from their brand new connection doesn't fit our old one (other keys):
+            // start a fresh one for it
+            if (msg.type !== "offer" || !known) throw err;
+            dbg("link: offer didn't fit, fresh link", { peer: msg.from, error: String(err) });
+            const peer = remotesRef.current[msg.from]?.peer ?? { id: msg.from, name: "…", role: "guest" as const };
+            dropPeer(msg.from);
+            await linkFor(peer).handleDescription(msg.type, msg.sdp);
+          }
           break;
         }
         case "ice":
@@ -154,6 +198,7 @@ export function useCall(ticket: JoinTicket | null, localStream: MediaStream | nu
           setStatus("denied");
           break;
         case "error":
+          dbg("recv: error", { code: msg.code, message: msg.message });
           setError(msg.message);
           break;
       }
@@ -192,6 +237,7 @@ export function useCall(ticket: JoinTicket | null, localStream: MediaStream | nu
         return;
       }
       setStatus("reconnecting");
+      dbg("ws: retry", { attempt: attempt + 1, inMs: RETRY_DELAYS[attempt] });
       retryTimer = setTimeout(open, RETRY_DELAYS[attempt]);
       attempt += 1;
     };
@@ -203,6 +249,8 @@ export function useCall(ticket: JoinTicket | null, localStream: MediaStream | nu
           inbox = inbox.then(() => onMessage(msg)).catch((err) => console.error("signaling message failed", err));
         },
         onClose,
+        // an offer or candidates that couldn't go out while it was down
+        signaling.current?.takeUnsent() ?? [],
       );
       signaling.current = client;
       client.connect();

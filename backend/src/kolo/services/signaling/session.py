@@ -40,6 +40,12 @@ REASON_UNAVAILABLE = "signaling_unavailable"
 
 MAX_VIOLATIONS = 50
 
+# closes that mean "I'm leaving": the client's bye (1000, also sent when the tab really
+# closes) or the server said no for good (4xxx). Anything else is a drop: wait for a comeback.
+# 1001 "going away" too: Chrome sends it when it freezes a background tab, not only on close
+def _is_a_real_leave(code: int | None) -> bool:
+    return code == 1000 or (code is not None and 4000 <= code < 5000)
+
 class SessionClosed(Exception):
     def __init__(self, code: int, reason: str) -> None:
         super().__init__(reason)
@@ -76,6 +82,12 @@ class PeerSession:
         self._replaced = False
         self._admitting = False
         self._tasks: set[asyncio.Task] = set()
+        # set by the hub on attach: this peer dropped a moment ago and is back (grace period)
+        self.rejoined = False
+        # how the socket ended, for the leave decision and the logs
+        self._close_code: int | None = None
+        self._close_reason = ""
+        self._closed_by = ""
 
     @property
     def is_joined(self) -> bool:
@@ -125,6 +137,7 @@ class PeerSession:
     async def _close_ws(self, code: int, reason: str) -> None:
         if self.state == "closed":
             return
+        self._close_code, self._close_reason, self._closed_by = code, reason, "server"
             
         try: 
             # let the last messages (like the error) go out first
@@ -147,6 +160,7 @@ class PeerSession:
     
     async def run(self) -> None:
         writer = asyncio.create_task(self._writer())
+        keepalive = asyncio.create_task(self._keepalive())
         metrics.WS_CONNECTIONS.inc()
         
         try:
@@ -161,8 +175,9 @@ class PeerSession:
                 await self._join()
                 
             await self._read_loop()
-        except WebSocketDisconnect:
-            pass
+        except WebSocketDisconnect as exc:
+            if not self._closed_by:
+                self._close_code, self._close_reason, self._closed_by = exc.code, exc.reason or "", "client"
         except SessionClosed as exc:
             await self._close_ws(exc.code, exc.reason)
         except Exception:
@@ -174,7 +189,32 @@ class PeerSession:
             await self._leave()
             await self._hub.detach(self)
             writer.cancel()
-            log.info("peer_disconnected", room=self.room_code, peer=self.peer.id)
+            keepalive.cancel()
+            log.info(
+                "peer_disconnected",
+                room=self.room_code,
+                peer=self.peer.id,
+                code=self._close_code,
+                reason=self._close_reason,
+                by=self._closed_by or "unknown",
+            )
+
+    async def _keepalive(self) -> None:
+        """While the socket is open, this peer is here: keep its presence fresh ourselves.
+
+        Client pings can't be trusted for that: a background tab sends them once a minute,
+        a locked phone not at all. Without this the peer fell out of presence while its socket
+        was fine, and a newcomer saw an empty room. Presence ttl is left for dead servers.
+        """
+        every = max(0.2, self._settings.presence_ttl_seconds / 3)
+        while True:
+            await asyncio.sleep(every)
+            if not self.is_joined:
+                continue
+            try:
+                await self._presence.touch(self.room_code, self.peer.id)
+            except Exception:
+                log.warning("presence_touch_failed", room=self.room_code, peer=self.peer.id)
 
     async def _enter_lobby(self) -> None:
         self.state = "lobby"
@@ -232,6 +272,10 @@ class PeerSession:
             },
             "peers": peers,
         }
+        if self.rejoined:
+            # back within the grace period: the others kept their connections to us, keep ours.
+            # Without it the others dropped us already and everything starts fresh
+            welcome["rejoined"] = True
         if self.peer.role is Role.HOST and self.room.lobby_enabled:
             welcome["lobby"] = [p.to_dict() for p in await self._presence.list_waiting(self.room_code)]
         if uses_sfu(self._settings, self.room) and self.room.requires_admission(self.peer.role):
@@ -242,15 +286,16 @@ class PeerSession:
             
         self.send(welcome)
         
-        await self._hub.publish(
-            self.room_code, 
-            {"type": "peer-joined", "peer": self.peer.to_dict()}, 
-            exclude=self.peer.id
-        )
-        self._events.emit(
-            "participant.joined", 
-            {"room": self.room_code, **self.peer.to_dict()}
-        )
+        # rejoined: the same person after a drop, the others keep their working connection
+        joined = {"type": "peer-joined", "peer": self.peer.to_dict()}
+        if self.rejoined:
+            joined["rejoined"] = True
+        await self._hub.publish(self.room_code, joined, exclude=self.peer.id)
+        if not self.rejoined:
+            self._events.emit(
+                "participant.joined",
+                {"room": self.room_code, **self.peer.to_dict()}
+            )
 
     async def _leave(self) -> None:
         state, self.state = self.state, "closed"
@@ -260,19 +305,17 @@ class PeerSession:
             return
             
         if state == "joined":
-            # best effort: broker down must not stop the cleanup.
-            # if it fails, presence ttl drops the peer later
-            try:
-                await self._presence.remove(self.room_code, self.peer.id)
-                await self._hub.publish(
-                    self.room_code, 
-                    {"type": "peer-left", "peer_id": self.peer.id}, 
-                    exclude=self.peer.id
+            grace = self._settings.leave_grace_seconds
+            if grace > 0 and not _is_a_real_leave(self._close_code):
+                # a drop, not a goodbye: give it a moment to come back
+                log.info("peer_leave_deferred", room=self.room_code, peer=self.peer.id, seconds=grace)
+                # a little slack: a keepalive already on its way to redis isn't a comeback
+                left_at = time.time() + 0.5
+                self._hub.schedule_leave(
+                    self.room_code, self.peer.id, grace, lambda: self._finish_leave(deferred_from=left_at)
                 )
-            except Exception:
-                log.warning("peer_leave_failed", room=self.room_code, peer=self.peer.id)
-                
-            self._events.emit("participant.left", {"room": self.room_code, "id": self.peer.id})
+                return
+            await self._finish_leave()
         elif state == "lobby":
             try:
                 await self._presence.remove_waiting(self.room_code, self.peer.id)
@@ -283,6 +326,27 @@ class PeerSession:
                 )
             except Exception:
                 log.warning("peer_leave_failed", room=self.room_code, peer=self.peer.id)
+
+    async def _finish_leave(self, *, deferred_from: float | None = None) -> None:
+        if deferred_from is not None:
+            # came back through another node meanwhile (this node cancels the leave itself):
+            # its join refreshed presence after the drop
+            seen = await self._presence.last_seen(self.room_code, self.peer.id)
+            if seen is not None and seen > deferred_from:
+                return
+        # best effort: broker down must not stop the cleanup.
+        # if it fails, presence ttl drops the peer later
+        try:
+            await self._presence.remove(self.room_code, self.peer.id)
+            await self._hub.publish(
+                self.room_code,
+                {"type": "peer-left", "peer_id": self.peer.id},
+                exclude=self.peer.id
+            )
+        except Exception:
+            log.warning("peer_leave_failed", room=self.room_code, peer=self.peer.id)
+
+        self._events.emit("participant.left", {"room": self.room_code, "id": self.peer.id})
 
     # ---------- incoming ----------
     

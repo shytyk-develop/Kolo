@@ -1,3 +1,4 @@
+import { dbg } from "./debug";
 import type { JoinTicket, RoomCreated, RoomPublic } from "./types";
 
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -31,11 +32,15 @@ export const api = {
 
   getRoom: (code: string) => request<RoomPublic>(`/rooms/${encodeURIComponent(code)}`),
 
-  join: (code: string, displayName: string, hostSecret?: string | null) =>
-    request<JoinTicket>(`/rooms/${encodeURIComponent(code)}/join`, {
+  join: async (code: string, displayName: string, hostSecret?: string | null) => {
+    dbg("join: request");
+    const ticket = await request<JoinTicket>(`/rooms/${encodeURIComponent(code)}/join`, {
       method: "POST",
       body: JSON.stringify({ display_name: displayName, host_secret: hostSecret ?? undefined }),
-    }),
+    });
+    dbg("join: ticket", { ice: ticket.ice_servers.map((s) => s.urls) });
+    return ticket;
+  },
 };
 
 export function wsUrl(ticket: JoinTicket): string {

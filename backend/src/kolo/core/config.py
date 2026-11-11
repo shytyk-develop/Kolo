@@ -50,6 +50,9 @@ class Settings(BaseSettings):
     room_ttl_hours: int = 24
     room_cache_ttl_seconds: int = 60
     presence_ttl_seconds: int = 60
+    # a socket that dropped (not a "bye") gets this long to come back before the others hear
+    # "peer-left": a wifi blip or a frozen tab must not tear down a working video call
+    leave_grace_seconds: float = 20.0
 
     # STUN / TURN
     stun_urls: list[str] = ["stun:stun.l.google.com:19302"]

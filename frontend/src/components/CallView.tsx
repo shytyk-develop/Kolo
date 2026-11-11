@@ -7,6 +7,7 @@ import { flushSync } from "react-dom";
 import { useCall } from "@/hooks/useCall";
 import { usePhone } from "@/hooks/usePhone";
 import { type CallStats, useStats } from "@/hooks/useStats";
+import { dbgOnce } from "@/lib/debug";
 import { avatarStyle, formatDuration, initial } from "@/lib/format";
 import { callQuality } from "@/lib/quality";
 import { fingerprintFromSdp, safetyCode } from "@/lib/safety";
@@ -152,6 +153,15 @@ export function CallView({ ticket, media, code, selfName, notice: noticeSlot, on
     else (v as HTMLVideoElement).addEventListener("loadeddata", shown, { once: true });
     return () => clearTimeout(timer);
   }, []);
+
+  // debug timeline: when the other person's picture is actually painted
+  const remoteStream = remote?.stream ?? null;
+  useEffect(() => {
+    const v = root.current?.querySelector<HTMLVideoElement>('[data-testid="remote-tile"] video');
+    if (!v || !remoteStream || typeof v.requestVideoFrameCallback !== "function") return;
+    const id = v.requestVideoFrameCallback(() => dbgOnce("video: first remote frame"));
+    return () => v.cancelVideoFrameCallback(id);
+  }, [remoteStream]);
 
   // call timer starts on the first connect
   const connected = remote?.state === "connected";

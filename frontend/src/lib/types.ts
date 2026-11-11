@@ -48,8 +48,11 @@ export type ServerMessage =
       lobby?: Peer[];
       room: { code: string; name: string; max_participants: number; lobby_enabled: boolean };
       sfu_token?: string;
+      // back within the server's grace period: the others kept their connections to us
+      rejoined?: boolean;
     }
-  | { type: "peer-joined"; peer: Peer }
+  // rejoined: the same person back after a dropped connection (their call may still be running)
+  | { type: "peer-joined"; peer: Peer; rejoined?: boolean }
   | { type: "peer-left"; peer_id: string }
   | { type: "offer" | "answer"; from: string; sdp: string }
   | { type: "ice"; from: string; candidate: RTCIceCandidateInit | null }

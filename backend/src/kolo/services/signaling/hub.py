@@ -7,6 +7,7 @@ every node passes it to its matching local sessions.
 """
 
 import asyncio
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 
 from kolo.core.logging import log
@@ -23,6 +24,8 @@ class SignalingHub:
         self._local: dict[str, dict[str, PeerSession]] = {}
         # room -> listener task
         self._listeners: dict[str, asyncio.Task] = {}
+        # (room, peer) -> a leave waiting out the grace period (the socket dropped, not a bye)
+        self._pending_leaves: dict[tuple[str, str], asyncio.Task] = {}
         self._lock = asyncio.Lock()
 
     @staticmethod
@@ -36,9 +39,15 @@ class SignalingHub:
         room = session.room_code
         
         async with self._lock:
+            # back within the grace period: the leave never happens, it's the same person going on
+            session.rejoined = self.cancel_leave(room, session.peer.id)
             sessions = self._local.setdefault(room, {})
             old = sessions.get(session.peer.id)
             sessions[session.peer.id] = session
+            # same ticket while the old socket is still here: the client reconnected before we
+            # noticed the old one die (network switch, its heartbeat gave up first). Also a comeback
+            if old is not None:
+                session.rejoined = True
             
             # second tab: kick the old one
             if old is not None: 
@@ -79,6 +88,31 @@ class SignalingHub:
                 task = self._listeners.pop(room, None)
                 if task:
                     task.cancel()
+
+    def schedule_leave(
+        self, room_code: str, peer_id: str, delay: float, finish: Callable[[], Awaitable[None]]
+    ) -> None:
+        """Run finish (presence out, "peer-left") after delay, unless the peer comes back first."""
+        key = (room_code, peer_id)
+        self.cancel_leave(room_code, peer_id)
+
+        async def later() -> None:
+            await asyncio.sleep(delay)
+            self._pending_leaves.pop(key, None)
+            try:
+                await finish()
+            except Exception:
+                # broker down: presence ttl drops the peer later
+                log.warning("peer_leave_failed", room=room_code, peer=peer_id)
+
+        self._pending_leaves[key] = asyncio.create_task(later())
+
+    def cancel_leave(self, room_code: str, peer_id: str) -> bool:
+        task = self._pending_leaves.pop((room_code, peer_id), None)
+        if task is None:
+            return False
+        task.cancel()
+        return True
 
     async def publish(
         self, 

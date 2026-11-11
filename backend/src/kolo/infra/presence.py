@@ -15,6 +15,7 @@ class PresenceStore(Protocol):
     async def add(self, room: str, peer: Peer) -> int: ...
     async def remove(self, room: str, peer_id: str) -> None: ...
     async def touch(self, room: str, peer_id: str) -> None: ...
+    async def last_seen(self, room: str, peer_id: str) -> float | None: ...
     async def members(self, room: str) -> list[Peer]: ...
     async def count(self, room: str) -> int: ...
     
@@ -59,6 +60,10 @@ class MemoryPresence:
         peers = self._peers.get(room, {})
         if peer_id in peers:
             peers[peer_id] = (self._clock(), peers[peer_id][1])
+
+    async def last_seen(self, room: str, peer_id: str) -> float | None:
+        entry = self._alive(room).get(peer_id)
+        return entry[0] if entry else None
 
     async def members(self, room: str) -> list[Peer]:
         return [peer for _, peer in self._alive(room).values()]
@@ -130,6 +135,10 @@ class RedisPresence:
         peers_key, _ = self._keys(room)
         # xx: a late ping must not bring back a removed peer
         await self._r.zadd(peers_key, {peer_id: self._clock()}, xx=True)
+
+    async def last_seen(self, room: str, peer_id: str) -> float | None:
+        score = await self._r.zscore(self._keys(room)[0], peer_id)
+        return float(score) if score is not None else None
 
     async def members(self, room: str) -> list[Peer]:
         _, info_key = self._keys(room)
