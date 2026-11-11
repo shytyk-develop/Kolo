@@ -10,6 +10,7 @@
     "e2e": "node e2e/call.mjs && node e2e/lobby.mjs"
   },
   "dependencies": {
+    "motion": "14.7.1",
     "next": "16.4.6",
     "react": "19.3.0",
     "react-dom": "19.3.0"
