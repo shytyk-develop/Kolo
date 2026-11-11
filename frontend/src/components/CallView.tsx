@@ -5,6 +5,8 @@ import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as Reac
 import { flushSync } from "react-dom";
 
 import { useCall } from "@/hooks/useCall";
+import { callLog } from "@/lib/calls";
+import { personOf, type Person } from "@/lib/people";
 import { usePhone, usePortSide } from "@/hooks/usePhone";
 import { type CallStats, useStats } from "@/hooks/useStats";
 import { dbgOnce } from "@/lib/debug";
@@ -80,7 +82,15 @@ const otherSide = (s: SplitSide): SplitSide => (s === "a" ? "b" : "a");
 
 export function CallView({ ticket, media, code, selfName, notice: noticeSlot, onShown }: Props) {
   const router = useRouter();
-  const call = useCall(ticket, media.stream);
+  // what the home screen says about this call afterwards: who, since when, when they left
+  const talk = useRef<{ peer: Person | null; since: number | null; leftAt: number | null }>({ peer: null, since: null, leftAt: null });
+  const goHomeRef = useRef<() => void>(() => {});
+  // a real drop: home shows "Connection lost" (or just the way back) and tries to rejoin
+  const call = useCall(ticket, media.stream, (kind) => {
+    const t = talk.current;
+    callLog.dropped(code, t.peer, t.since, kind === "lost");
+    goHomeRef.current();
+  });
   const [codes, setCodes] = useState<Record<string, string>>({});
   const [focusSelf, setFocusSelf] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -165,6 +175,22 @@ export function CallView({ ticket, media, code, selfName, notice: noticeSlot, on
     if (connected) setConnectedAt((t) => t ?? Date.now());
     if (!hasRemote) setConnectedAt(null);
   }, [connected, hasRemote]);
+
+  // the call for Recent: who they are (id + name from signaling), timed from the first connect
+  const known = remote?.peer.name && remote.peer.name !== "…" ? remote.peer : null;
+  const peerKey = known ? `${known.client_id ?? ""}|${known.name}` : "";
+  useEffect(() => {
+    const t = talk.current;
+    if (connected) {
+      t.since ??= Date.now();
+      if (known) t.peer = personOf(known);
+      t.leftAt = null;
+      callLog.live(code, t.peer, t.since);
+    } else if (!hasRemote && t.since && !t.leftAt) {
+      t.leftAt = Date.now();
+    }
+    // peerKey stands for `known`
+  }, [connected, hasRemote, peerKey, code]);
 
   // safety code from both dtls fingerprints
   useEffect(() => {
@@ -457,11 +483,18 @@ export function CallView({ ticket, media, code, selfName, notice: noticeSlot, on
   // leaving: the call fades, the camera glides home on the same tap
   const cam = useCamera();
   const [leaving, setLeaving] = useState(false);
-  const hangUp = () => {
+  const goHome = () => {
     const el = root.current;
     if (el) el.dataset.leaving = "";
     setLeaving(true);
     leaveHome(cam, router, selfBigRef.current ? "full" : "hidden");
+  };
+  goHomeRef.current = goHome;
+  // real duration: until they left, or until now
+  const hangUp = () => {
+    const t = talk.current;
+    callLog.ended(code, t.peer, t.since, t.leftAt ?? Date.now());
+    goHome();
   };
 
   const copyLink = async () => {

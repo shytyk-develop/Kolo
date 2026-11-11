@@ -1,7 +1,7 @@
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { CallView } from "@/components/CallView";
 import { leaveHome, useCamera, useCameraSlot } from "@/components/CameraLayer";
@@ -11,6 +11,8 @@ import { MicMeter } from "@/components/LevelBars";
 import { useMedia } from "@/components/MediaProvider";
 import { MorphIsland, type IslandItem } from "@/components/MorphIsland";
 import { ApiError, api, hostSecrets } from "@/lib/api";
+import { stashTicket, storedTicket } from "@/lib/calls";
+import { profile } from "@/lib/people";
 import { avatarStyle, initial } from "@/lib/format";
 import { createSlot, type Slot, useSlot } from "@/lib/slot";
 import type { JoinTicket, RoomPublic } from "@/lib/types";
@@ -38,6 +40,14 @@ export default function RoomPage() {
   const [room, setRoom] = useState<RoomPublic | null>(null);
   const [name, setName] = useState("");
   const [ticket, setTicket] = useState<JoinTicket | null>(null);
+  // the home screen got a seat already (or a dropped call comes back): straight into the call
+  const [handed, setHanded] = useState(false);
+  useLayoutEffect(() => {
+    const kept = storedTicket(code);
+    if (!kept) return;
+    setTicket(kept);
+    setHanded(true);
+  }, [code]);
   const [joining, setJoining] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isHost, setIsHost] = useState(false);
@@ -61,7 +71,7 @@ export default function RoomPage() {
     try {
       // only into an empty field: during a page change effects run late, and whatever was
       // typed in the meantime must not be wiped
-      const saved = localStorage.getItem("kolo:name") ?? "";
+      const saved = profile.get().name;
       setName((typed) => typed || saved);
     } catch {}
   }, [code, start]);
@@ -71,10 +81,12 @@ export default function RoomPage() {
     setError(null);
     setJoining(true);
     try {
-      try {
-        localStorage.setItem("kolo:name", name.trim());
-      } catch {}
-      setTicket(await api.join(code, name.trim(), hostSecrets.get(code)));
+      // my name for next time, the home screen's too
+      profile.set((p) => ({ ...p, name: name.trim() }));
+      const joined = await api.join(code, name.trim(), hostSecrets.get(code), profile.get().id);
+      // kept for a reconnect: the same seat, no second admit
+      stashTicket(code, joined);
+      setTicket(joined);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not join");
     } finally {
@@ -129,7 +141,7 @@ export default function RoomPage() {
             </div>
           </div>
 
-          <Island edge="bottom" className="joinbar">
+          <Island edge="bottom" className="joinbar" hidden={handed}>
             <form
               className="joinbar__form"
               onSubmit={(e) => {

@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { wsUrl } from "@/lib/api";
@@ -26,10 +25,16 @@ export interface ChatLine {
 
 export type CallStatus = "connecting" | "lobby" | "in-call" | "reconnecting" | "denied" | "ended" | "error";
 
-// short window for a wifi blip (~4.5 s total), then the call ends
-const RETRY_DELAYS = [1000, 1500, 2000];
-// 1001 = going away, 1012 = server stopped/restarted: end the call right away
+// the picture still flows: get the signaling back in place, 1/2/4/8/8 s
+const RETRY_DELAYS = [1000, 2000, 4000, 8000, 8000];
+// 1001 = going away, 1012 = server stopped/restarted: no point waiting here
 const SERVER_GONE = new Set([1001, 1012]);
+// a connection that worked and went "disconnected"/"failed" this long is a dropped call
+const MEDIA_LOST_MS = 5000;
+
+// lost: the call dropped, home tries to bring it back ("Connection lost");
+// home: tried here already and gave up, home just keeps the way back
+export type DropKind = "lost" | "home";
 
 const CLOSE_ERRORS: Record<number, string> = {
   4401: "The link has expired, join again",
@@ -40,8 +45,9 @@ const CLOSE_ERRORS: Record<number, string> = {
 };
 
 /** Everything about the call: signaling, a connection per person, chat, lobby. */
-export function useCall(ticket: JoinTicket | null, localStream: MediaStream | null) {
-  const router = useRouter();
+export function useCall(ticket: JoinTicket | null, localStream: MediaStream | null, onDrop: (kind: DropKind) => void) {
+  const onDropRef = useRef(onDrop);
+  onDropRef.current = onDrop;
   const [status, setStatus] = useState<CallStatus>("connecting");
   const [me, setMe] = useState<Peer | null>(null);
   const [remotes, setRemotes] = useState<Record<string, RemoteParticipant>>({});
@@ -67,6 +73,15 @@ export function useCall(ticket: JoinTicket | null, localStream: MediaStream | nu
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
     // messages one by one: an ice candidate must not run before its offer is applied
     let inbox = Promise.resolve();
+    // the call is leaving this page: our seat is kept for the comeback, not given up
+    let handingOff = false;
+    const connected = new Set<string>();
+    // the signaling socket is up (welcome came, no close since)
+    let wsUp = false;
+    const mediaTimers = new Map<string, ReturnType<typeof setTimeout>>();
+    const alive = () => [...links.current.values()].some((l) => l.alive);
+    // links my welcome just made: their "peer-joined" may still be on its way (we came in together)
+    const fromWelcome = new Set<string>();
 
     const newRemote = (peer: Peer): RemoteParticipant => ({
       peer,
@@ -91,7 +106,10 @@ export function useCall(ticket: JoinTicket | null, localStream: MediaStream | nu
           signaling.current?.send(m);
         },
         (stream) => patchRemote(peer.id, { stream }),
-        (state) => patchRemote(peer.id, { state }),
+        (state) => {
+          patchRemote(peer.id, { state });
+          watchMedia(peer.id, state);
+        },
       );
       link.addLocalStream(localStream);
       links.current.set(peer.id, link);
@@ -100,7 +118,36 @@ export function useCall(ticket: JoinTicket | null, localStream: MediaStream | nu
       return link;
     };
 
+    // a connection that was up and stays down while my socket is down too: my call dropped.
+    // With the socket up it's their side, the server tells us when they're gone
+    const watchMedia = (id: string, state: RTCPeerConnectionState) => {
+      clearTimeout(mediaTimers.get(id));
+      mediaTimers.delete(id);
+      if (state === "connected") connected.add(id);
+      if (!connected.has(id) || (state !== "disconnected" && state !== "failed")) return;
+      mediaTimers.set(
+        id,
+        setTimeout(() => {
+          if (!stopped && !wsUp && links.current.has(id) && !alive()) drop("lost");
+        }, MEDIA_LOST_MS),
+      );
+    };
+
+    const drop = (kind: DropKind) => {
+      if (stopped) return;
+      dbg("call: dropped", { kind });
+      stopped = true;
+      handingOff = true;
+      clearTimeout(retryTimer);
+      setStatus("reconnecting");
+      onDropRef.current(kind);
+    };
+
     const dropPeer = (id: string) => {
+      fromWelcome.delete(id);
+      clearTimeout(mediaTimers.get(id));
+      mediaTimers.delete(id);
+      connected.delete(id);
       if (links.current.has(id)) dbg("link: closed", { peer: id });
       links.current.get(id)?.close();
       links.current.delete(id);
@@ -123,6 +170,7 @@ export function useCall(ticket: JoinTicket | null, localStream: MediaStream | nu
       switch (msg.type) {
         case "welcome": {
           attempt = 0;
+          wsUp = true;
           setMe(msg.you);
           setStatus("in-call");
           setError(null);
@@ -140,6 +188,7 @@ export function useCall(ticket: JoinTicket | null, localStream: MediaStream | nu
             if (link) dropPeer(peer.id);
             // newcomer (or a dead link) calls the ones already in the room
             linkFor(peer);
+            fromWelcome.add(peer.id);
           });
           break;
         }
@@ -148,6 +197,12 @@ export function useCall(ticket: JoinTicket | null, localStream: MediaStream | nu
           const link = links.current.get(msg.peer.id);
           if (link && msg.rejoined && link.alive) {
             dbg("link: kept", { peer: msg.peer.id });
+            break;
+          }
+          // we came in at the same moment: my welcome saw them and my offer is out, keep it.
+          // If it really was a new session of theirs, their offer won't fit and gets a fresh link
+          if (link && fromWelcome.delete(msg.peer.id)) {
+            dbg("link: kept, joined together", { peer: msg.peer.id });
             break;
           }
           // a new session of theirs means a new connection: theirs will come with an offer
@@ -204,25 +259,13 @@ export function useCall(ticket: JoinTicket | null, localStream: MediaStream | nu
       }
     };
 
-    // the server is gone: close every peer connection and go home with a reason
-    const leave = (reason: "server" | "lost") => {
-      stopped = true;
-      clearTimeout(retryTimer);
-      dropAll();
-      setStatus("ended");
-      try {
-        // same flag as a normal hang-up: the home card slides back in
-        sessionStorage.setItem("kolo:back-home", "1");
-      } catch {}
-      router.replace(`/?ended=${reason}`);
-    };
-
     const onClose = (code: number, reason: string) => {
+      wsUp = false;
       if (stopped) return;
       console.info("signaling closed", code, reason);
 
       if (SERVER_GONE.has(code)) {
-        leave("server");
+        drop("lost");
         return;
       }
       // 1000 = normal, 4xxx = server said no for good, retrying won't help
@@ -231,9 +274,14 @@ export function useCall(ticket: JoinTicket | null, localStream: MediaStream | nu
         setError(CLOSE_ERRORS[code] ?? null);
         return;
       }
-      // network drop or dead server: a few quick tries, then give up
+      // network drop and no picture either: home takes it from here ("Connection lost")
+      if (!alive()) {
+        drop("lost");
+        return;
+      }
+      // the picture still flows: try the signaling here, quietly
       if (attempt >= RETRY_DELAYS.length) {
-        leave("lost");
+        drop("home");
         return;
       }
       setStatus("reconnecting");
@@ -256,15 +304,19 @@ export function useCall(ticket: JoinTicket | null, localStream: MediaStream | nu
       client.connect();
     };
 
-    open();
+    // a tick later: strict mode's mount-unmount-mount in dev must not open two sockets
+    retryTimer = setTimeout(open, 0);
 
     return () => {
       stopped = true;
       clearTimeout(retryTimer);
-      signaling.current?.close();
+      mediaTimers.forEach(clearTimeout);
+      // a drop keeps the seat for the comeback (grace period), a hang-up says bye
+      if (handingOff) signaling.current?.handOff();
+      else signaling.current?.close();
       dropAll();
     };
-  }, [ticket, localStream, patchRemote, router]);
+  }, [ticket, localStream, patchRemote]);
 
   const send = useCallback((m: Parameters<SignalingClient["send"]>[0]) => signaling.current?.send(m), []);
 
