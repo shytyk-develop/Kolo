@@ -6,6 +6,8 @@ export interface Peer {
   id: string;
   name: string;
   role: Role;
+  // their browser, stable across calls (id is per call); missing from older clients
+  client_id?: string;
 }
 
 export interface RoomCreated {

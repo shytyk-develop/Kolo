@@ -84,11 +84,21 @@ export class SignalingClient {
   }
 
   close(): void {
+    this.shut(1000, "bye");
+  }
+
+  /** Giving this seat to another page: not a bye, the server holds it for its grace period. */
+  handOff(): void {
+    this.shut(3001, "handoff");
+  }
+
+  private shut(code: number, reason: string): void {
     clearTimeout(this.openTimer);
     this.stopPing();
     if (this.ws) {
       this.ws.onclose = null;
-      this.ws.close(1000, "bye");
+      this.ws.onmessage = null;
+      this.ws.close(code, reason);
     }
   }
 
