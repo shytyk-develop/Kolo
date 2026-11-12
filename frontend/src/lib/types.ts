@@ -8,7 +8,28 @@ export interface Peer {
   role: Role;
   // their browser, stable across calls (id is per call); missing from older clients
   client_id?: string;
+  // their Kolo ID, set by the server from their linked Telegram
+  handle?: string;
 }
+
+export interface Me {
+  // Telegram invites are set up on this server
+  telegram: boolean;
+  handle?: string;
+}
+
+export interface LinkStart {
+  token: string;
+  deep_link: string;
+  expires_in: number;
+}
+
+export interface LinkStatus {
+  status: "pending" | "linked" | "expired";
+  handle?: string;
+}
+
+export type InviteStatus = "sent" | "needs_acceptance" | "undeliverable";
 
 export interface RoomCreated {
   code: string;

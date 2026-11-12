@@ -1,5 +1,5 @@
 import { dbg } from "../debug";
-import type { JoinTicket, RoomCreated, RoomPublic } from "../types";
+import type { InviteStatus, JoinTicket, LinkStart, LinkStatus, Me, RoomCreated, RoomPublic } from "../types";
 
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -12,6 +12,8 @@ export class ApiError extends Error {
     // backend codes (room_not_found, ...) plus ours: offline, unreachable, timeout
     public code: string,
     message: string,
+    // seconds, from Retry-After
+    public retryAfter?: number,
   ) {
     super(message);
   }
@@ -25,6 +27,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     response = await fetch(`${API_URL}/api/v1${path}`, {
       ...init,
       signal: abort.signal,
+      // the httpOnly Telegram cookie rides along; js never sees it
+      credentials: "include",
       headers: { "Content-Type": "application/json", ...init?.headers },
     });
   } catch (err) {
@@ -41,7 +45,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     const error = data.error ?? {};
-    throw new ApiError(response.status, error.code ?? "http_error", error.message ?? "Server error");
+    const retry = Number(response.headers.get("Retry-After")) || undefined;
+    throw new ApiError(response.status, error.code ?? "http_error", error.message ?? "Server error", retry);
   }
   return data as T;
 }
@@ -70,6 +75,19 @@ export const api = {
     dbg("join: ticket", { ice: ticket.ice_servers.map((s) => s.urls) });
     return ticket;
   },
+};
+
+export const telegramApi = {
+  me: () => request<Me>("/me"),
+  startLink: () => request<LinkStart>("/me/telegram/link", { method: "POST" }),
+  linkStatus: (token: string) => request<LinkStatus>(`/me/telegram/link/${encodeURIComponent(token)}`),
+  unlink: () => request<void>("/me/telegram", { method: "DELETE" }),
+  // the caller is whoever this browser linked, the server reads it from the cookie
+  invite: (code: string, target: string) =>
+    request<{ status: InviteStatus }>(`/rooms/${encodeURIComponent(code)}/invite`, {
+      method: "POST",
+      body: JSON.stringify({ target }),
+    }),
 };
 
 export function wsUrl(ticket: JoinTicket): string {

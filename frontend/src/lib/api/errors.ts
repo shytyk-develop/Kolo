@@ -38,6 +38,18 @@ export function errorText(err: unknown, fallback = "Something went wrong. Try ag
     case "denied":
     case "not_available":
       return err.message;
+    case "invite_rate_limited":
+      return "Too many invites, try again later.";
+    case "telegram_not_linked":
+      return "Connect Telegram in Settings first.";
+    case "telegram_unavailable":
+      return "Telegram isn’t answering. Try again in a moment.";
+    case "telegram_disabled":
+      return "Telegram invites aren’t set up here.";
+    case "link_not_found":
+      return "That Telegram link expired. Try again.";
+    case "invalid_input":
+      return err.message;
   }
   if (err.status >= 500) return "kolo is having trouble right now. Try again in a moment.";
   return fallback;

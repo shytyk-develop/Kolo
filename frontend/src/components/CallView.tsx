@@ -178,7 +178,7 @@ export function CallView({ ticket, media, code, selfName, notice: noticeSlot, on
 
   // the call for Recent: who they are (id + name from signaling), timed from the first connect
   const known = remote?.peer.name && remote.peer.name !== "…" ? remote.peer : null;
-  const peerKey = known ? `${known.client_id ?? ""}|${known.name}` : "";
+  const peerKey = known ? `${known.client_id ?? ""}|${known.handle ?? ""}|${known.name}` : "";
   useEffect(() => {
     const t = talk.current;
     if (connected) {

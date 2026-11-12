@@ -4,6 +4,8 @@ import { createStore, readJson, writeJson } from "./store";
 export interface Person {
   id: string;
   name: string;
+  // their Kolo ID, from the server (their linked Telegram): lets me invite them there
+  handle?: string;
 }
 
 export interface Contact extends Person {
@@ -64,9 +66,10 @@ const newId = () =>
     : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
 
 /** The other side of a call as signaling describes them. */
-export const personOf = (peer: { name: string; client_id?: string }): Person => ({
+export const personOf = (peer: { name: string; client_id?: string; handle?: string }): Person => ({
   id: peer.client_id ?? nameKey(peer.name),
   name: peer.name,
+  ...(peer.handle ? { handle: peer.handle } : {}),
 });
 
 // rows from before ids were keyed by the bare name: once, give them the name: prefix
@@ -135,14 +138,19 @@ export function rememberCall(person: Person, durationMs: number, callId: string)
   const name = person.name.trim();
   if (!name || !profile.get().rememberPeople) return false;
   recents.set((list) => {
-    // the same browser, or a row made before they had an id (same name): that's them
-    const old = list.find((c) => c.id === person.id) ?? list.find((c) => byNameOnly(c.id) && c.id === nameKey(name));
+    // the same browser, the same Kolo ID from another browser, or a row from before ids (same name)
+    const old =
+      list.find((c) => c.id === person.id) ??
+      (person.handle ? list.find((c) => c.handle === person.handle) : undefined) ??
+      list.find((c) => byNameOnly(c.id) && c.id === nameKey(name));
     const again = old?.lastCallId === callId;
     const entry: Contact = {
       id: person.id,
       // their name now, unless I renamed them here
       name: old?.renamed ? old.name : name,
       renamed: old?.renamed,
+      // what the server says now: gone if they unlinked Telegram
+      ...(person.handle ? { handle: person.handle } : {}),
       lastCallAt: Date.now(),
       lastDurationMs: again && old ? Math.max(old.lastDurationMs, durationMs) : durationMs,
       calls: (old?.calls ?? 0) + (again ? 0 : 1),
