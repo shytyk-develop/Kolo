@@ -95,7 +95,8 @@ class Settings(BaseSettings):
     session_secret: SecretStr | None = Field(
         None, validation_alias=AliasChoices("SESSION_SECRET", "KOLO_SESSION_SECRET")
     )
-    notify_timeout_seconds: float = 5.0
+    # notify can be cold (a sleeping Vercel function and Neon database): give it time to wake up
+    notify_timeout_seconds: float = 15.0
 
     @property
     def telegram_enabled(self) -> bool:
