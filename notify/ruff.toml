@@ -1,0 +1,9 @@
+target-version = "py312"
+line-length = 120
+
+[lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF", "ASYNC"]
+
+[lint.per-file-ignores]
+# translations: Cyrillic letters and typographic dashes are the point
+"notify/texts.py" = ["RUF001", "E501"]
