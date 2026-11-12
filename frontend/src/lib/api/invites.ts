@@ -1,4 +1,4 @@
-import { createStore } from "../store";
+import { createStore, readJson, writeJson } from "../store";
 import type { InviteStatus } from "../types";
 import { ApiError, telegramApi } from "./http";
 
@@ -31,9 +31,72 @@ export async function refreshTelegram(): Promise<TelegramState> {
   return telegram.get();
 }
 
-/** Opens the bot in a new tab and waits until it says who they are. null = gave up or expired. */
-export async function connectTelegram(signal: AbortSignal): Promise<string | null> {
-  // opened inside the tap, or the popup blocker eats it
+// ---------- linking: Settings → the bot in Telegram → back here ----------
+
+export type LinkPhase = "idle" | "waiting" | "expired";
+
+// the token survives a reload: phones often drop the tab while Telegram is in front
+const LINK_KEY = "kolo:tg-link";
+interface Pending {
+  token: string;
+  until: number;
+}
+
+export const linking = createStore<LinkPhase>(() => (readJson<Pending>("session", LINK_KEY) ? "waiting" : "idle"), "idle");
+
+let running = false;
+
+function finish(phase: LinkPhase) {
+  writeJson("session", LINK_KEY, null);
+  linking.set(phase);
+}
+
+// the next poll: after POLL_MS, or right away when the tab is back in front
+function nextTick(): Promise<void> {
+  return new Promise((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", done);
+      resolve();
+    };
+    const onVisible = () => document.visibilityState === "visible" && done();
+    const timer = setTimeout(done, POLL_MS);
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", done);
+  });
+}
+
+async function poll(): Promise<void> {
+  if (running) return;
+  running = true;
+  try {
+    while (linking.get() === "waiting") {
+      const pending = readJson<Pending>("session", LINK_KEY);
+      if (!pending || Date.now() > pending.until) return finish(pending ? "expired" : "idle");
+      try {
+        const status = await telegramApi.linkStatus(pending.token);
+        if (status.status === "linked" && status.handle) {
+          telegram.set((t) => ({ ...t, handle: status.handle! }));
+          return finish("idle");
+        }
+        if (status.status === "expired") return finish("expired");
+      } catch (err) {
+        // the link is gone (or this browser never asked for it); anything else is a blip
+        if (err instanceof ApiError && err.code === "link_not_found") return finish("expired");
+      }
+      // /me may know already (linked in another tab): show it at once
+      if ((await refreshTelegram()).handle) return finish("idle");
+      if (linking.get() !== "waiting") return;
+      await nextTick();
+    }
+  } finally {
+    running = false;
+  }
+}
+
+/** Opens the bot in a new tab and waits for it. Call from the tap itself (popup blockers). */
+export async function startLink(): Promise<void> {
   const tab = window.open("", "_blank");
   let link;
   try {
@@ -42,26 +105,20 @@ export async function connectTelegram(signal: AbortSignal): Promise<string | nul
     tab?.close();
     throw err;
   }
+  writeJson("session", LINK_KEY, { token: link.token, until: Date.now() + link.expires_in * 1000 });
+  linking.set("waiting");
   if (tab) tab.location.href = link.deep_link;
   else window.location.href = link.deep_link;
+  void poll();
+}
 
-  const until = Date.now() + link.expires_in * 1000;
-  while (!signal.aborted && Date.now() < until) {
-    await new Promise((r) => setTimeout(r, POLL_MS));
-    if (signal.aborted) break;
-    try {
-      const status = await telegramApi.linkStatus(link.token);
-      if (status.status === "linked" && status.handle) {
-        telegram.set((t) => ({ ...t, handle: status.handle! }));
-        return status.handle;
-      }
-      if (status.status === "expired") return null;
-    } catch (err) {
-      // a blip: keep polling; the link itself gone: stop
-      if (err instanceof ApiError && err.status === 404) return null;
-    }
-  }
-  return null;
+/** A link started before a reload: keep waiting for it. */
+export function resumeLink(): void {
+  if (linking.get() === "waiting") void poll();
+}
+
+export function cancelLink(): void {
+  finish("idle");
 }
 
 export async function disconnectTelegram(): Promise<void> {

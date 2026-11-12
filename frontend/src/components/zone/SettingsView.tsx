@@ -1,10 +1,10 @@
 "use client";
 
 import { AnimatePresence, motion } from "motion/react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { SendIcon, Spinner, TrashIcon } from "@/components/Icons";
-import { connectTelegram, disconnectTelegram, errorText, refreshTelegram, telegram } from "@/lib/api";
+import { cancelLink, disconnectTelegram, errorText, linking, refreshTelegram, resumeLink, startLink, telegram } from "@/lib/api";
 import { useMotionSet } from "@/lib/motion";
 import { clearRecents, lobby, profile, recents } from "@/lib/people";
 import { useStore } from "@/lib/store";
@@ -87,20 +87,19 @@ export function SettingsView({ dir }: ViewProps) {
   );
 }
 
-type CardState = "off" | "idle" | "waiting" | "linked";
+type CardState = "off" | "idle" | "waiting" | "expired" | "linked";
 
 function TelegramCard() {
   const m = useMotionSet();
   const tg = useStore(telegram);
-  const [waiting, setWaiting] = useState(false);
+  const phase = useStore(linking);
   const [busy, setBusy] = useState(false);
   // one tap arms it, the second disconnects: it deletes the Kolo ID in the bot
   const [armed, setArmed] = useState(false);
-  const poll = useRef<AbortController | null>(null);
 
   useEffect(() => {
     void refreshTelegram();
-    return () => poll.current?.abort();
+    resumeLink();
   }, []);
   useEffect(() => {
     if (!armed) return;
@@ -108,27 +107,14 @@ function TelegramCard() {
     return () => clearTimeout(id);
   }, [armed]);
 
-  const state: CardState = !tg.ready ? "off" : tg.handle ? "linked" : waiting ? "waiting" : "idle";
+  const state: CardState = !tg.ready ? "off" : tg.handle ? "linked" : phase;
 
   const connect = async () => {
-    const ac = new AbortController();
-    poll.current?.abort();
-    poll.current = ac;
-    setWaiting(true);
     try {
-      const handle = await connectTelegram(ac.signal);
-      if (handle) toast(`Connected as @${handle}`);
-      else if (!ac.signal.aborted) toast("The Telegram link expired. Try again.");
+      await startLink();
     } catch (err) {
       toast(errorText(err, "Couldn’t reach Telegram. Try again."));
-    } finally {
-      if (poll.current === ac) setWaiting(false);
     }
-  };
-
-  const cancel = () => {
-    poll.current?.abort();
-    setWaiting(false);
   };
 
   const disconnect = async () => {
@@ -152,7 +138,8 @@ function TelegramCard() {
     off: "Not set up on this server",
     idle: "Not connected",
     waiting: "Waiting for Telegram…",
-    linked: `Connected as @${tg.handle}`,
+    expired: "Link expired — try again",
+    linked: `Linked as @${tg.handle}`,
   }[state];
 
   return (
@@ -169,13 +156,13 @@ function TelegramCard() {
               animate={{ opacity: 1, y: 0, transition: m.sweep }}
               exit={{ opacity: 0, transition: m.leave }}
             >
-              {state === "idle" && (
+              {(state === "idle" || state === "expired") && (
                 <Press className="tgcard__btn" onClick={() => void connect()} aria-label="Connect Telegram" data-testid="tg-connect">
-                  Connect
+                  {state === "expired" ? "Try again" : "Connect"}
                 </Press>
               )}
               {state === "waiting" && (
-                <Press className="tgcard__btn tgcard__btn--quiet" onClick={cancel} data-testid="tg-cancel">
+                <Press className="tgcard__btn tgcard__btn--quiet" onClick={cancelLink} data-testid="tg-cancel">
                   Cancel
                 </Press>
               )}

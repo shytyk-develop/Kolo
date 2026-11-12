@@ -1820,6 +1820,9 @@
 .tgcard[data-state="linked"] .tgcard__meta {
   color: var(--green);
 }
+.tgcard[data-state="expired"] .tgcard__meta {
+  color: var(--red);
+}
 .view--settings .zrow {
   margin-top: 18px;
 }
