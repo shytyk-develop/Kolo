@@ -43,6 +43,10 @@ services:
   api:
     build: ../backend
     environment: *api-env
+    # NOTIFY_URL, NOTIFY_API_KEY, SESSION_SECRET for Telegram invites; `environment` above wins for the rest
+    env_file:
+      - path: ../backend/.env
+        required: false
     ports: ["127.0.0.1:8000:8000"]
     depends_on:
       migrate: {condition: service_completed_successfully}
