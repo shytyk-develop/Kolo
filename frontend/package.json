@@ -8,7 +8,8 @@
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "e2e": "node e2e/call.mjs && node e2e/lobby.mjs",
-    "e2e:telegram": "node e2e/telegram.mjs"
+    "e2e:telegram": "node e2e/telegram.mjs",
+    "e2e:offline": "node e2e/offline.mjs"
   },
   "dependencies": {
     "motion": "14.7.1",

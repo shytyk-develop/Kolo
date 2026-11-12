@@ -40,3 +40,11 @@ KOLO_DATABASE_URL=memory:// KOLO_REDIS_URL= KOLO_CORS_ORIGINS='["http://localhos
 
 npm run e2e:telegram   # linking (popup, Back to Kolo landing, other browser, expired), invites, a call
 ```
+
+The backend going away and coming back (starts its own backend on `BACKEND_PORT`, default 8000, so stop
+the docker api first): the "Server is offline" pill, the cached Telegram link, recovery without a reload,
+and the 4 s give-up on a hanging backend.
+
+```bash
+npm run e2e:offline
+```
