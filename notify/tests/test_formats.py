@@ -46,9 +46,9 @@ def test_names_are_escaped_in_messages():
     assert text.startswith("📞 <b>") and "<code>abc-defg-hij</code>" in text
 
 
-def test_buttons_are_not_escaped():
-    # buttons aren't HTML
-    assert plain("en", "btn_block", name="Tom & Jerry") == "Block Tom & Jerry"
+def test_plain_text_is_not_escaped():
+    # buttons and the /open page aren't HTML
+    assert plain("en", "ended", name="Tom & Jerry") == "Call with <b>Tom & Jerry</b> ended."
 
 
 def test_language_pick():

@@ -16,9 +16,6 @@ from .texts import plain, t
 
 BotFactory = Callable[[Settings], Bot]
 
-# longer names push the other button off the row
-BUTTON_NAME_MAX = 24
-
 
 def make_bot(settings: Settings) -> Bot:
     # one per request: serverless event loops don't live long
@@ -37,8 +34,22 @@ def open_url(settings: Settings, url: str, lang: str) -> str:
     return f"{settings.public_url}/open?{query}"
 
 
-def _short(name: str) -> str:
-    return name if len(name) <= BUTTON_NAME_MAX else name[: BUTTON_NAME_MAX - 1] + "…"
+def back_url(settings: Settings, token: str) -> str:
+    """Kolo's Settings, finishing the link there (only in the browser that pressed Connect)."""
+    return f"{settings.kolo_url}/?{urlencode({'link': token})}#settings"
+
+
+def _browser_buttons(settings: Settings, lang: str, url: str, label: str) -> list[list[InlineKeyboardButton]]:
+    # the system browser through /open; a plain link under it in case the mini app can't
+    return [
+        [InlineKeyboardButton(text=plain(lang, label), web_app=WebAppInfo(url=open_url(settings, url, lang)))],
+        [InlineKeyboardButton(text=plain(lang, "btn_open"), url=url)],
+    ]
+
+
+def linked_view(settings: Settings, lang: str, handle: str, token: str) -> tuple[str, InlineKeyboardMarkup]:
+    keyboard = _browser_buttons(settings, lang, back_url(settings, token), "btn_back")
+    return t(lang, "linked", handle=handle), InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
 def invite_view(
@@ -48,19 +59,12 @@ def invite_view(
         text = t(lang, "invite_unknown", name=caller_name)
         keyboard = [[
             InlineKeyboardButton(text=plain(lang, "btn_accept"), callback_data=f"acc:{invite_id}"),
-            InlineKeyboardButton(
-                text=plain(lang, "btn_block", name=_short(caller_name)), callback_data=f"blk:{invite_id}"
-            ),
+            InlineKeyboardButton(text=plain(lang, "btn_block"), callback_data=f"blk:{invite_id}"),
         ]]
         return text, InlineKeyboardMarkup(inline_keyboard=keyboard)
 
     url = room_url(settings, room)
     text = t(lang, "invite", name=caller_name, code=room)
-    keyboard = [
-        [InlineKeyboardButton(text=plain(lang, "btn_join"), web_app=WebAppInfo(url=open_url(settings, url, lang)))],
-        [
-            InlineKeyboardButton(text=plain(lang, "btn_open"), url=url),
-            InlineKeyboardButton(text=plain(lang, "btn_copy"), copy_text=CopyTextButton(text=url)),
-        ],
-    ]
+    keyboard = _browser_buttons(settings, lang, url, "btn_join")
+    keyboard[1].append(InlineKeyboardButton(text=plain(lang, "btn_copy"), copy_text=CopyTextButton(text=url)))
     return text, InlineKeyboardMarkup(inline_keyboard=keyboard)

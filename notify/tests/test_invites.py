@@ -60,7 +60,7 @@ async def test_stranger_must_accept_first(client, auth, tg, store, people):
     [[accept, block]] = buttons(sent.reply_markup)
     invite_id = r.json()["invite_id"]
     assert accept["callback_data"] == f"acc:{invite_id}"
-    assert block == {"text": plain("ru", "btn_block", name="Yan <script>"), "callback_data": f"blk:{invite_id}"}
+    assert block == {"text": plain("ru", "btn_block"), "callback_data": f"blk:{invite_id}"}
 
 
 async def test_unknown_id_looks_like_a_stranger(client, auth, tg, store, people):

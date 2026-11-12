@@ -13,7 +13,7 @@ from .config import Settings
 from .handles import handle_problem, normalize_handle
 from .logs import log
 from .store import Store
-from .telegram import invite_view
+from .telegram import invite_view, linked_view
 from .texts import pick_lang, plain, t
 
 router = Router(name="kolo")
@@ -28,7 +28,7 @@ def _who(user: TgUser | None) -> tuple[str, str]:
 
 
 @router.message(CommandStart())
-async def on_start(message: Message, command: CommandObject, store: Store) -> None:
+async def on_start(message: Message, command: CommandObject, store: Store, settings: Settings) -> None:
     name, lang = _who(message.from_user)
     chat = message.chat.id
     payload = command.args or ""
@@ -39,10 +39,11 @@ async def on_start(message: Message, command: CommandObject, store: Store) -> No
         await store.touch_user(chat, name, lang)
         await store.clear_state(chat)
         if token is None:
-            await message.answer(t(lang, "id_saved", handle=me.handle))
+            await message.answer(t(lang, "id_show", handle=me.handle))
         elif await store.bind_link_token(token, me.handle):
             log("linked", new_user=False)
-            await message.answer(t(lang, "linked", handle=me.handle))
+            text, keyboard = linked_view(settings, lang, me.handle, token)
+            await message.answer(text, reply_markup=keyboard)
         else:
             await message.answer(t(lang, "link_bad"))
         return
@@ -52,7 +53,7 @@ async def on_start(message: Message, command: CommandObject, store: Store) -> No
         token = None
     # binds once they pick an ID
     await store.set_state(chat, "choose", token)
-    await message.answer(t(lang, "greet") + "\n\n" + t(lang, "ask_id"))
+    await message.answer(t(lang, "greet") + "\n" + t(lang, "ask_id"))
 
 
 @router.message(Command("id"))
@@ -60,10 +61,10 @@ async def on_id(message: Message, store: Store) -> None:
     _, lang = _who(message.from_user)
     me = await store.user_by_chat(message.chat.id)
     if me is not None:
-        await message.answer(t(lang, "id_saved", handle=me.handle))
+        await message.answer(t(lang, "id_show", handle=me.handle))
         return
     await store.set_state(message.chat.id, "choose")
-    await message.answer(t(lang, "no_id") + "\n\n" + t(lang, "ask_id"))
+    await message.answer(t(lang, "no_id") + "\n" + t(lang, "ask_id"))
 
 
 @router.message(Command("rename"))
@@ -72,7 +73,7 @@ async def on_rename(message: Message, store: Store) -> None:
     me = await store.user_by_chat(message.chat.id)
     if me is None:
         await store.set_state(message.chat.id, "choose")
-        await message.answer(t(lang, "no_id") + "\n\n" + t(lang, "ask_id"))
+        await message.answer(t(lang, "no_id") + "\n" + t(lang, "ask_id"))
         return
     await store.set_state(message.chat.id, "rename")
     await message.answer(t(lang, "rename_ask", handle=me.handle))
@@ -100,7 +101,7 @@ async def on_other_command(message: Message, store: Store) -> None:
 
 
 @router.message(F.text)
-async def on_text(message: Message, store: Store) -> None:
+async def on_text(message: Message, store: Store, settings: Settings) -> None:
     # the reply to "which ID?" (first time or /rename)
     name, lang = _who(message.from_user)
     chat = message.chat.id
@@ -120,11 +121,15 @@ async def on_text(message: Message, store: Store) -> None:
         if not await store.create_user(handle, chat, name, lang):
             await message.answer(t(lang, "id_taken", handle=handle))
             return
-        linked = state.link_token is not None and await store.bind_link_token(state.link_token, handle)
+        token = state.link_token
+        linked = token is not None and await store.bind_link_token(token, handle)
         await store.clear_state(chat)
         log("user_created", linked=linked)
-        text = t(lang, "id_saved", handle=handle)
-        await message.answer(text + ("\n" + t(lang, "linked_short") if linked else ""))
+        if linked and token is not None:
+            text, keyboard = linked_view(settings, lang, handle, token)
+            await message.answer(text, reply_markup=keyboard)
+        else:
+            await message.answer(t(lang, "id_saved", handle=handle))
         return
 
     if handle != me.handle and not await store.rename_user(chat, handle):

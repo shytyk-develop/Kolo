@@ -1,5 +1,7 @@
 import pytest
 
+from notify.texts import t
+
 pytestmark = pytest.mark.anyio
 
 
@@ -56,14 +58,16 @@ async def test_link_flow(client, auth, tg):
 
     await send_update(client, message_update(501, f"/start link_{token}", first_name="Yan"))
     await send_update(client, message_update(501, "yan_k", first_name="Yan"))
-    assert "Linked to Kolo" in tg.named("SendMessage")[-1].text
+    linked = tg.named("SendMessage")[-1]
+    assert linked.text == t("en", "linked", handle="yan_k")
+    assert linked.reply_markup.inline_keyboard[0][0].text == "Back to Kolo"
     assert (await client.get(f"/v1/link/{token}", headers=auth)).json() == {
         "status": "linked", "handle": "yan_k", "display_name": "Yan"
     }
     # single use
     await send_update(client, message_update(502, f"/start link_{token}"))
     bad, greeting = tg.named("SendMessage")[-2:]
-    assert "expired or was already used" in bad.text and "Pick a short Kolo ID" in greeting.text
+    assert bad.text == t("en", "link_bad") and greeting.text.startswith(t("en", "greet"))
     assert (await client.get(f"/v1/link/{token}", headers=auth)).json()["handle"] == "yan_k"
 
 
@@ -80,7 +84,7 @@ async def test_existing_user_links_right_away(client, auth, tg, store):
     await store.create_user("alex718", 601, "Alex", "en")
     token = (await client.post("/v1/link", headers=auth)).json()["token"]
     await send_update(client, message_update(601, f"/start link_{token}"))
-    assert "Kolo now knows your ID <code>alex718</code>" in tg.named("SendMessage")[-1].text
+    assert tg.named("SendMessage")[-1].text == t("en", "linked", handle="alex718")
     assert (await client.get(f"/v1/link/{token}", headers=auth)).json()["status"] == "linked"
 
 
@@ -99,3 +103,25 @@ async def test_calls_completed_and_delete(client, auth, store):
     assert not await store.is_known("alex718", "yan_k")
     assert (await client.delete("/v1/users/yan_k", headers=auth)).status_code == 204
     assert (await client.delete("/v1/users/no!", headers=auth)).status_code == 422
+
+
+async def test_back_to_kolo_finishes_the_link_in_the_system_browser(client, auth, tg, settings):
+    from urllib.parse import parse_qs, urlsplit
+
+    from notify.signing import verify
+    from tests.conftest import message_update, send_update
+
+    token = (await client.post("/v1/link", headers=auth)).json()["token"]
+    await send_update(client, message_update(701, f"/start link_{token}"))
+    await send_update(client, message_update(701, "jan_k"))
+    [[back], [fallback]] = tg.named("SendMessage")[-1].reply_markup.inline_keyboard
+
+    url = f"https://kolo-black.vercel.app/?link={token}#settings"
+    assert (back.text, fallback.text) == ("Back to Kolo", "Open link")
+    assert fallback.url == url
+    # the mini app page, signed: it hands exactly this url to the system browser
+    query = parse_qs(urlsplit(back.web_app.url).query)
+    assert back.web_app.url.startswith("https://notify.example/open?")
+    assert query["u"] == [url] and verify(settings.api_key, url, query["s"][0], settings.kolo_url)
+    page = await client.get("/open", params={"u": url, "s": query["s"][0]})
+    assert page.status_code == 200 and "openLink" in page.text

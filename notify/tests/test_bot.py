@@ -21,18 +21,18 @@ async def test_webhook_needs_the_secret(client, tg):
 
 async def test_choosing_an_id(client, tg, store):
     await send_update(client, message_update(ME, "/start"))
-    assert last(tg) == t("en", "greet") + "\n\n" + t("en", "ask_id")
+    assert last(tg) == t("en", "greet") + "\n" + t("en", "ask_id")
 
     await send_update(client, message_update(ME, "no"))
-    assert "won't work as an ID" in last(tg)
+    assert last(tg) == t("en", "id_invalid")
     await send_update(client, message_update(ME, "kolo_admin"))
-    assert "<code>kolo_admin</code> is reserved" in last(tg)
+    assert last(tg) == t("en", "id_reserved", handle="kolo_admin")
     await store.create_user("taken1", 1, "Someone", "en")
     await send_update(client, message_update(ME, "Taken1"))
-    assert "<code>taken1</code> is already taken" in last(tg)
+    assert last(tg) == t("en", "id_taken", handle="taken1")
 
     await send_update(client, message_update(ME, " @Alex718 "))
-    assert last(tg) == "Your Kolo ID: <code>alex718</code> — share it with friends."
+    assert last(tg) == t("en", "id_saved", handle="alex718")
     me = await store.user("alex718")
     assert (me.chat_id, me.display_name, me.lang) == (ME, "Alex", "en")
     assert await store.state(ME) is None
@@ -57,18 +57,18 @@ async def test_names_from_telegram_are_escaped(client, tg, store):
 
 async def test_id_and_rename(client, tg, store):
     await send_update(client, message_update(ME, "/id"))
-    assert "don't have a Kolo ID yet" in last(tg)
+    assert last(tg).startswith(t("en", "no_id"))
     await send_update(client, message_update(ME, "alex718"))
     await store.create_user("yan_k", 1, "Yan", "en")
     await store.add_pair("alex718", "yan_k")
     await store.add_block("alex718", "yan_k")
 
     await send_update(client, message_update(ME, "/rename"))
-    assert "Your Kolo ID is <code>alex718</code>. Send the new one" in last(tg)
+    assert last(tg) == t("en", "rename_ask", handle="alex718")
     await send_update(client, message_update(ME, "yan_k"))
-    assert "already taken" in last(tg)
+    assert last(tg) == t("en", "id_taken", handle="yan_k")
     await send_update(client, message_update(ME, "alex_new"))
-    assert "<code>alex_new</code> — the old one no longer works" in last(tg)
+    assert last(tg) == "Your Kolo ID is now <code>alex_new</code>.\nThe old one no longer works."
     assert await store.user("alex718") is None
     # pairs and blocks follow the rename
     assert await store.is_known("alex_new", "yan_k")
@@ -87,7 +87,7 @@ async def test_stop_deletes_everything(client, auth, tg, store):
 
     await send_update(client, message_update(ME, "/stop"))
     ask = tg.named("SendMessage")[-1]
-    assert "can't be undone" in ask.text
+    assert ask.text == t("en", "stop_ask")
     [[yes, no]] = ask.reply_markup.inline_keyboard
     assert (yes.callback_data, no.callback_data) == ("stop:yes", "stop:no")
 
@@ -98,14 +98,14 @@ async def test_stop_deletes_everything(client, auth, tg, store):
     for _ in range(2):  # pressed twice
         r = await send_update(client, callback_update(ME, "stop:yes", 9))
         assert r.status_code == 200
-        assert tg.named("EditMessageText")[-1].text.startswith("Deleted.")
+        assert tg.named("EditMessageText")[-1].text == t("en", "stopped")
     assert await store.user("alex718") is None
     assert not await store.is_known("alex718", "yan_k")
     assert await store.conn.fetchval("select count(*) from invites") == 0
     assert len(tg.named("AnswerCallbackQuery")) == 3
 
     await send_update(client, message_update(ME, "/stop"))
-    assert "keeps nothing about you" in last(tg)
+    assert last(tg) == t("en", "stop_nothing")
 
 
 async def stranger_invite(client, auth, store, tg):
@@ -121,7 +121,7 @@ async def test_accept_turns_it_into_the_invite(client, auth, tg, store):
     for _ in range(2):  # idempotent
         await send_update(client, callback_update(ME, f"acc:{invite_id}", 101))
         edit = tg.named("EditMessageText")[-1]
-        assert edit.text == "📞 <b>Yan</b> invites you to a call\nCode: <code>abc-defg-hij</code>"
+        assert edit.text == "📞 <b>Yan</b> is calling you\nRoom <code>abc-defg-hij</code>"
         assert edit.reply_markup.inline_keyboard[0][0].web_app is not None
         assert tg.named("AnswerCallbackQuery")[-1].text == "Accepted"
     assert await store.is_known("yan_k", "alex718")
@@ -134,7 +134,7 @@ async def test_accept_turns_it_into_the_invite(client, auth, tg, store):
 async def test_block(client, auth, tg, store):
     invite_id, _ = await stranger_invite(client, auth, store, tg)
     await send_update(client, callback_update(ME, f"blk:{invite_id}", 101))
-    assert tg.named("EditMessageText")[-1].text == "🚫 Blocked. You won't get calls from Yan."
+    assert tg.named("EditMessageText")[-1].text == t("en", "blocked", name="Yan")
     assert tg.named("EditMessageText")[-1].reply_markup is None
     assert tg.named("AnswerCallbackQuery")[-1].text == "Blocked"
     assert await store.is_blocked("alex718", "yan_k")
@@ -158,7 +158,7 @@ async def test_buttons_only_work_for_the_recipient(client, auth, tg, store):
     invite_id, _ = await stranger_invite(client, auth, store, tg)
     await store.create_user("mallory", 999, "M", "en")
     await send_update(client, callback_update(999, f"acc:{invite_id}", 101))
-    assert tg.named("AnswerCallbackQuery")[-1].text == "This invite is no longer available"
+    assert tg.named("AnswerCallbackQuery")[-1].text == t("en", "cb_gone")
     assert not await store.is_known("yan_k", "alex718")
     # junk data: still answered
     await send_update(client, callback_update(ME, "acc:not-a-uuid", 101))
