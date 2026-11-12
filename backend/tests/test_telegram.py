@@ -165,7 +165,7 @@ def test_only_the_browser_that_asked_can_collect_the_link(tg_client, notify):
     tg_client.cookies.clear()
     notify.link_state = {"status": "linked", "handle": "alex718", "display_name": "Alex"}
     r = tg_client.get("/api/v1/me/telegram/link/tok_abcdefghijklmnop")
-    assert r.status_code == 404 and r.json()["error"]["code"] == "link_not_found"
+    assert r.status_code == 403 and r.json()["error"]["code"] == "link_other_browser"
     assert COOKIE not in tg_client.cookies
     # notify wasn't even asked
     assert "/v1/link/tok_abcdefghijklmnop" not in notify.paths()

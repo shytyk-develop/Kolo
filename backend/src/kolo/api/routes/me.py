@@ -16,7 +16,7 @@ from kolo.core.tg_cookie import (
     sign_linked,
     sign_pending,
 )
-from kolo.domain.errors import LinkNotFound, TelegramDisabled
+from kolo.domain.errors import LinkElsewhere, TelegramDisabled
 from kolo.services.telegram import TelegramService
 
 
@@ -100,7 +100,8 @@ async def link_status(
 ) -> LinkStatusResponse:
     telegram = telegram_of(c)
     if not pending_matches(_secret(c), token, request.cookies.get(PENDING_COOKIE)):
-        raise LinkNotFound()
+        # a forwarded link is useless anywhere else
+        raise LinkElsewhere()
     status = await telegram.link_status(token)
     if status["status"] != "linked":
         return LinkStatusResponse(status=status["status"])
