@@ -29,12 +29,12 @@ export function startMockNotify() {
     // test controls
     if (path === "/__bot") return send(200, { bot: "pretend this is Telegram" });
     if (path === "/__link") {
-      // the person picked an ID in the bot
-      links.set(last, { status: "linked", handle: json.handle, display_name: json.name });
+      // the person picked an ID in the bot (for the token in the link they opened, else the newest)
+      links.set(json.token ?? last, { status: "linked", handle: json.handle, display_name: json.name });
       return send(200, { ok: true });
     }
     if (path === "/__expire") {
-      links.set(last, { status: "expired", handle: null, display_name: null });
+      links.set(json?.token ?? last, { status: "expired", handle: null, display_name: null });
       return send(200, { ok: true });
     }
     if (path === "/__last") return send(200, { token: last });

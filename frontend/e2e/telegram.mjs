@@ -20,12 +20,17 @@ async function openSettings(page) {
 
 // Connect opens the bot in a popup; this tab stays where it is
 async function tapConnect(page) {
+  // a real link to the bot, ready before the tap (phones open the Telegram app only for those)
+  await page.locator('a[data-testid="tg-connect"][href*="start=link_"]').waitFor({ timeout: 8000 });
   const popup = page.waitForEvent("popup");
   await page.getByTestId("tg-connect").click();
   const tab = await popup;
   await tab.waitForURL(/__bot\?start=link_/);
   return tab;
 }
+
+// the token the "bot" got: from the link the popup opened
+const tokenOf = (tab) => new URL(tab.url()).searchParams.get("start").replace(/^link_/, "");
 
 const closed = (tab) => tab.isClosed() || tab.waitForEvent("close", { timeout: 5000 }).then(() => true, () => false);
 
@@ -49,9 +54,9 @@ async function link(page, handle, name, { reload = false, via = "poll" } = {}) {
     await status.filter({ hasText: "Waiting for Telegram…" }).waitFor();
     console.log(`${name}: still waiting after a reload`);
   }
-  await control("/__link", { handle, name });
+  const token = tokenOf(tg);
+  await control("/__link", { token, handle, name });
   if (via === "back") {
-    const { token } = await control("/__last");
     const landing = await page.context().newPage();
     await landing.goto(`${WEB}/?link=${token}#settings`);
     await landing.getByTestId("tg-status").filter({ hasText: `Connected as @${handle}` }).waitFor({ timeout: 8000 });
@@ -67,6 +72,7 @@ async function link(page, handle, name, { reload = false, via = "poll" } = {}) {
   const cookie = checkCookie(await page.context().cookies());
   console.log(`${name}: linked as @${handle}, kolo_tg on ${cookie.domain}${reload ? "" : ", popup closed"}`);
   await page.getByRole("button", { name: "Back from settings" }).click();
+  return token;
 }
 
 async function inviteById(page, handle) {
@@ -105,16 +111,15 @@ try {
   // a link that runs out while this tab waits
   const status = await openSettings(yan);
   const stale = await tapConnect(yan);
-  await control("/__expire");
+  await control("/__expire", { token: tokenOf(stale) });
   await status.filter({ hasText: "Link expired — try again" }).waitFor({ timeout: 8000 });
   await yan.getByTestId("tg-connect").filter({ hasText: "Try again" }).waitFor();
   await stale.close();
   console.log("Expired link: 'Link expired — try again'");
 
-  await link(yan, "yan_k", "Yan", { via: "back" });
+  const yansToken = await link(yan, "yan_k", "Yan", { via: "back" });
 
   // Back to Kolo opened in another browser: no kolo_tg_link cookie there, nothing to finish
-  const { token: yansToken } = await control("/__last");
   await alex.goto(`${WEB}/?link=${yansToken}#settings`);
   await alex.getByTestId("tg-elsewhere").filter({ hasText: "Open Kolo in the browser where you pressed Connect" }).waitFor();
   await alex.getByTestId("tg-connect-here").filter({ hasText: "Connect here instead" }).waitFor();
@@ -125,8 +130,8 @@ try {
   const zoe = await person(browser, "Zoe");
   await openSettings(zoe);
   const zoesTg = await tapConnect(zoe);
-  await control("/__expire");
-  const { token: zoesToken } = await control("/__last");
+  const zoesToken = tokenOf(zoesTg);
+  await control("/__expire", { token: zoesToken });
   await zoesTg.close();
   const zoeLanding = await zoe.context().newPage();
   await zoeLanding.goto(`${WEB}/?link=${zoesToken}#settings`);

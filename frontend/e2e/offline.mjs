@@ -62,8 +62,10 @@ try {
   const popup = page.waitForEvent("popup");
   await page.getByTestId("tg-connect").click();
   // the popup opens blank in the tap and gets the bot's link a moment later: the token exists then
-  await (await popup).waitForURL(/__bot\?start=link_/);
-  await control("/__link", { handle: "jan", name: "Jan" });
+  const tg = await popup;
+  await tg.waitForURL(/__bot\?start=link_/);
+  const token = new URL(tg.url()).searchParams.get("start").replace(/^link_/, "");
+  await control("/__link", { token, handle: "jan", name: "Jan" });
   const status = page.getByTestId("tg-status");
   await status.filter({ hasText: "Connected as @jan" }).waitFor({ timeout: 8000 });
   console.log("online: Connected as @jan");
