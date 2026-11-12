@@ -2173,3 +2173,54 @@ html[data-call-island="right"] .island--float {
     animation-duration: 1ms;
   }
 }
+
+/* call page inside Telegram's in-app browser: the camera wants the real one */
+.inapp {
+  position: fixed;
+  /* under the room's top island */
+  top: calc(env(safe-area-inset-top, 0px) + 72px);
+  left: 50%;
+  translate: -50% 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: max-content;
+  max-width: min(440px, calc(100vw - 24px));
+  padding: 6px 6px 6px 14px;
+  border-radius: 18px;
+  background: rgba(28, 28, 30, 0.92);
+  color: #fff;
+  font-size: 13px;
+  line-height: 18px;
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  animation: inapp-in 240ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.inapp__text {
+  min-width: 0;
+}
+.inapp__copy {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 11px;
+  border-radius: 14px;
+  background: #fff;
+  color: #000;
+  font-size: 13px;
+  font-weight: 600;
+}
+@keyframes inapp-in {
+  from {
+    opacity: 0;
+    translate: -50% -8px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .inapp {
+    animation-duration: 1ms;
+  }
+}

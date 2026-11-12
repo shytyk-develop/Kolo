@@ -4,6 +4,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { CallView } from "@/components/CallView";
+import { InAppBanner } from "@/components/InAppBanner";
 import { leaveHome, useCamera, useCameraSlot } from "@/components/CameraLayer";
 import { ArrowIcon, BackIcon, CamGlyph, Spinner, UserIcon } from "@/components/Icons";
 import { Island } from "@/components/Island";
@@ -115,6 +116,7 @@ export default function RoomPage() {
 
   return (
     <>
+      <InAppBanner />
       {ticket && inCall && (
         <CallView
           ticket={ticket}
