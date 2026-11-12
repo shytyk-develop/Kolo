@@ -1,11 +1,11 @@
 "use client";
 
-import { AnimatePresence, motion } from "motion/react";
-import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
+import { AnimatePresence, motion, useAnimate } from "motion/react";
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 
 import { ArrowIcon, BoltIcon, LinkIcon, MoreIcon, PencilIcon, SendIcon, Spinner, TrashIcon } from "@/components/Icons";
 import type { Nav } from "@/hooks/useViews";
-import { createRoom, errorText, TELEGRAM_READY } from "@/lib/api";
+import { createRoom, errorText, HANDLE_RULES, isHandle, normalizeHandle, telegram } from "@/lib/api";
 import { useMotionSet } from "@/lib/motion";
 import { lobby, profile, recents, removeRecent, renameRecent, type Contact } from "@/lib/people";
 import { createStore, useStore } from "@/lib/store";
@@ -13,6 +13,7 @@ import { dayLabel, lengthLabel } from "@/lib/time";
 
 import { Avatar, copyText, Footnote, IconButton, Press, SectionLabel, toast } from "./ui";
 import { Row, ViewBody, ViewFoot, ViewFrame, ViewHead, type ViewProps } from "./ViewFrame";
+import { useInvite } from "./useInvite";
 import { useZone } from "./ZoneContext";
 
 // where the "…" that opened the menu is, relative to the panel
@@ -58,6 +59,8 @@ export function NewMeetingView({ nav, dir }: ViewProps) {
   const menuFor = nav.view.name === "new" ? nav.view.menu : undefined;
   const [instantBusy, setInstantBusy] = useState(false);
   const { busy, start } = useStartWith(nav);
+  const invite = useInvite(nav);
+  const tg = useStore(telegram);
   const navRef = useRef(nav);
   navRef.current = nav;
 
@@ -77,6 +80,8 @@ export function NewMeetingView({ nav, dir }: ViewProps) {
   };
 
   const onStart = useCallback((c: Contact) => void start(c), [start]);
+  const send = invite.send;
+  const onInvite = useCallback((c: Contact) => c.handle && void send(c.handle, c.name), [send]);
   const onMenu = useCallback((id: string, button: HTMLElement) => {
     const panel = button.closest(".panel")?.getBoundingClientRect();
     const r = button.getBoundingClientRect();
@@ -100,6 +105,7 @@ export function NewMeetingView({ nav, dir }: ViewProps) {
             <span className="instant__go">{instantBusy ? <Spinner size={18} /> : <ArrowIcon size={22} strokeWidth={2} />}</span>
           </Press>
         </Row>
+        <KoloIdInvite nav={nav} />
         <Row>
           <SectionLabel aside={list.length ? "on this device" : undefined}>Recent</SectionLabel>
         </Row>
@@ -107,7 +113,16 @@ export function NewMeetingView({ nav, dir }: ViewProps) {
           <div className="recents">
             <AnimatePresence mode="popLayout">
               {list.map((c) => (
-                <RecentRow key={c.id} contact={c} busy={busy === c.id} active={menuFor === c.id} onStart={onStart} onMenu={onMenu} />
+                <RecentRow
+                  key={c.id}
+                  contact={c}
+                  busy={busy === c.id || (Boolean(c.handle) && invite.busy === c.handle)}
+                  active={menuFor === c.id}
+                  viaTelegram={Boolean(tg.handle && c.handle)}
+                  onStart={onStart}
+                  onInvite={onInvite}
+                  onMenu={onMenu}
+                />
               ))}
             </AnimatePresence>
           </div>
@@ -139,15 +154,21 @@ const RecentRow = memo(function RecentRow({
   contact: c,
   busy,
   active,
+  viaTelegram,
   onStart,
+  onInvite,
   onMenu,
 }: {
   contact: Contact;
   busy: boolean;
   active: boolean;
+  // they have a Kolo ID and I'm linked: the plane sends a Telegram invite
+  viaTelegram: boolean;
   onStart: (c: Contact) => void;
+  onInvite: (c: Contact) => void;
   onMenu: (id: string, button: HTMLElement) => void;
 }) {
+  const go = viaTelegram ? onInvite : onStart;
   const m = useMotionSet();
   const editing = useStore(renaming) === c.id;
   return (
@@ -169,7 +190,7 @@ const RecentRow = memo(function RecentRow({
           </div>
         </div>
       ) : (
-        <button type="button" className="recent__main" onClick={() => onStart(c)} aria-label={`New meeting with ${c.name}`}>
+        <button type="button" className="recent__main" onClick={() => go(c)} aria-label={`New meeting with ${c.name}`}>
           <Avatar name={c.name} size={44} />
           <span className="recent__text">
             <span className="recent__name">{c.name}</span>
@@ -177,15 +198,27 @@ const RecentRow = memo(function RecentRow({
           </span>
         </button>
       )}
-      <IconButton
-        className="recent__act"
-        label={`Copy a new link for ${c.name}`}
-        onClick={() => onStart(c)}
-        aria-busy={busy || undefined}
-        data-testid="recent-start"
-      >
-        {busy ? <Spinner size={16} /> : <LinkIcon size={18} strokeWidth={1.9} />}
-      </IconButton>
+      {viaTelegram ? (
+        <IconButton
+          className="recent__act"
+          label={`Invite ${c.name} on Telegram`}
+          onClick={() => onInvite(c)}
+          aria-busy={busy || undefined}
+          data-testid="recent-invite"
+        >
+          {busy ? <Spinner size={16} /> : <SendIcon size={18} strokeWidth={1.9} />}
+        </IconButton>
+      ) : (
+        <IconButton
+          className="recent__act"
+          label={`Copy a new link for ${c.name}`}
+          onClick={() => onStart(c)}
+          aria-busy={busy || undefined}
+          data-testid="recent-start"
+        >
+          {busy ? <Spinner size={16} /> : <LinkIcon size={18} strokeWidth={1.9} />}
+        </IconButton>
+      )}
       <IconButton
         tone="plain"
         id={`more-${c.id}`}
@@ -231,6 +264,8 @@ export function ContactMenu({ nav, split }: { nav: Nav; split: boolean }) {
   const contact = id ? list.find((c) => c.id === id) : undefined;
   const m = useMotionSet();
   const { busy, start } = useStartWith(nav);
+  const invite = useInvite(nav);
+  const tg = useStore(telegram);
 
   // the menu is a history entry: closing it is Back
   const close = useCallback(() => nav.back(), [nav]);
@@ -250,11 +285,17 @@ export function ContactMenu({ nav, split }: { nav: Nav; split: boolean }) {
     {
       key: "invite",
       label: "Invite via Telegram",
-      icon: <SendIcon size={20} strokeWidth={1.8} />,
-      // TODO(telegram): call sendTelegramInvite here once the bot exists
-      disabled: !TELEGRAM_READY,
-      hint: TELEGRAM_READY ? undefined : "Coming soon",
-      run: () => {},
+      icon: invite.busy ? <Spinner size={18} /> : <SendIcon size={20} strokeWidth={1.8} />,
+      disabled: !tg.handle || !contact.handle,
+      hint: !tg.ready
+        ? "Not set up on this server"
+        : !tg.handle
+          ? "Connect Telegram in Settings"
+          : !contact.handle
+            ? "They haven’t linked Telegram"
+            : undefined,
+      // replace: Back from "Inviting" shouldn't reopen the menu
+      run: () => contact.handle && void invite.send(contact.handle, contact.name, { replace: true }),
     },
     {
       key: "copy",
@@ -398,5 +439,95 @@ function MenuCard({ contact, actions }: { contact: Contact; actions: Action[] })
         </Press>
       ))}
     </div>
+  );
+}
+
+/** Under Instant meeting: a new room and a Telegram invite to whoever has this Kolo ID. */
+function KoloIdInvite({ nav }: { nav: Nav }) {
+  const m = useMotionSet();
+  const tg = useStore(telegram);
+  const list = useStore(recents);
+  const { busy, send } = useInvite(nav);
+  const [value, setValue] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [field, animate] = useAnimate<HTMLDivElement>();
+
+  if (!tg.ready) return null;
+  if (!tg.handle) {
+    return (
+      <Row>
+        <Press className="idlink" onClick={() => nav.push({ name: "settings" })} data-testid="connect-to-invite">
+          <SendIcon size={15} strokeWidth={2} />
+          Connect Telegram to invite by ID
+        </Press>
+      </Row>
+    );
+  }
+
+  const fail = (text: string) => {
+    setError(text);
+    if (!m.reduced && field.current) animate(field.current, { x: [0, -8, 7, -5, 4, -2, 0] }, { duration: 0.42, ease: "easeOut" });
+  };
+
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    if (busy) return;
+    const handle = normalizeHandle(value);
+    if (!isHandle(handle)) return fail(`A Kolo ID is ${HANDLE_RULES}`);
+    if (handle === tg.handle) return fail("That’s your own Kolo ID");
+    const who = list.find((c) => c.handle === handle)?.name ?? handle;
+    void send(handle, who);
+  };
+
+  return (
+    <Row className="idinvite">
+      <form onSubmit={submit} noValidate>
+        <label htmlFor="kolo-id" className="idinvite__label">
+          Invite by Kolo ID
+        </label>
+        <div ref={field} className="codefield codefield--id" data-error={error ? "" : undefined}>
+          <span className="codefield__at" aria-hidden>
+            @
+          </span>
+          <input
+            id="kolo-id"
+            data-testid="id-invite-input"
+            placeholder="alex718"
+            value={value}
+            maxLength={21}
+            onChange={(e) => {
+              setValue(e.target.value);
+              if (error) setError(null);
+            }}
+            autoComplete="off"
+            autoCapitalize="off"
+            spellCheck={false}
+            enterKeyHint="send"
+            aria-invalid={Boolean(error)}
+            aria-describedby={error ? "kolo-id-error" : undefined}
+          />
+          <motion.span className="codefield__ring" initial={false} animate={{ opacity: error ? 1 : 0 }} transition={m.sweep} aria-hidden />
+          <button type="submit" aria-label="Send invite" aria-busy={busy ? true : undefined} data-testid="id-invite-send">
+            {busy ? <Spinner size={16} /> : <SendIcon size={17} strokeWidth={2} />}
+          </button>
+        </div>
+      </form>
+      <AnimatePresence initial={false}>
+        {error && (
+          <motion.p
+            key={error}
+            id="kolo-id-error"
+            className="home__error"
+            role="alert"
+            initial={{ opacity: 0, y: m.reduced ? 0 : -4 }}
+            animate={{ opacity: 1, y: 0, transition: m.sweep }}
+            exit={{ opacity: 0, transition: m.leave }}
+          >
+            <span aria-hidden>×</span>
+            {error}
+          </motion.p>
+        )}
+      </AnimatePresence>
+    </Row>
   );
 }

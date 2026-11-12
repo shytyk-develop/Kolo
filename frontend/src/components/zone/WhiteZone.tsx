@@ -9,7 +9,7 @@ import { BackIcon, PlusIcon } from "@/components/Icons";
 import { useMedia } from "@/components/MediaProvider";
 import { useSplit } from "@/hooks/useSplit";
 import { useViews, type Nav, type View } from "@/hooks/useViews";
-import { reconnect, roomGone } from "@/lib/api";
+import { reconnect, refreshTelegram, roomGone } from "@/lib/api";
 import { DROPPED_SHOWN_MS, lastCall, type LastCall } from "@/lib/people";
 import { useStore } from "@/lib/store";
 
@@ -129,6 +129,11 @@ export function WhiteZone() {
   useEffect(() => {
     void start();
   }, [start]);
+
+  // what the server says about Telegram: turns the invite parts on
+  useEffect(() => {
+    void refreshTelegram();
+  }, []);
 
   // the dropped call's room may be gone by now: then there's nothing to go back to
   const bannerCode = banner?.code;

@@ -1,5 +1,7 @@
 "use client";
 
+import type { InviteStatus } from "@/lib/types";
+
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 // every screen of the white zone; params live in history.state, so Back restores them
@@ -8,13 +10,16 @@ export type View =
   | { name: "new"; menu?: string }
   // guest: made for someone from Recent; copied: the link is on the clipboard already
   | { name: "ready"; code: string; lobby: boolean; guest?: string; copied?: boolean }
-  // not reachable until telegram invites exist
-  | { name: "inviting"; code: string; contactId: string; sentAt: number }
+  // a Telegram invite went out (or didn't): who = how I know them, status = what notify said
+  | { name: "inviting"; code: string; lobby: boolean; who: string; handle: string; status: InviteState; sentAt: number }
   | { name: "host"; code: string }
   | { name: "guest"; code: string; host: string | null }
   | { name: "lost"; code: string }
   | { name: "ended"; code: string }
   | { name: "settings" };
+
+// limited: notify said too many invites
+export type InviteState = InviteStatus | "limited";
 
 export type ViewName = View["name"];
 

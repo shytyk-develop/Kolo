@@ -11,9 +11,8 @@ import {
   denyGuest,
   errorText,
   openLobby,
-  sendTelegramInvite,
   setRoomLobby,
-  TELEGRAM_READY,
+  telegram,
   waitForAdmission,
   type HostLobby,
   type Knock,
@@ -26,6 +25,7 @@ import { clockLabel } from "@/lib/time";
 
 import { Avatar, Button, CopyGlyph, copyText, Footnote, IconButton, Press, SectionLabel, Switch, toast, useCopy } from "./ui";
 import { Row, ViewBody, ViewFoot, ViewFrame, ViewHead, type ViewProps } from "./ViewFrame";
+import { useInvite } from "./useInvite";
 import { useZone } from "./ZoneContext";
 
 type ViewOf<N extends View["name"]> = Extract<View, { name: N }>;
@@ -73,7 +73,12 @@ async function shareLink(link: string) {
 
 export function RoomReadyView(props: ViewProps & { view: ViewOf<"ready"> }) {
   const { nav, dir, view } = props;
-  const people = useStore(recents).slice(0, 4);
+  const tg = useStore(telegram);
+  // only people I can reach there: they have a Kolo ID, and I'm linked
+  const people = useStore(recents)
+    .filter((c) => c.handle && tg.handle)
+    .slice(0, 4);
+  const { busy: inviting, send } = useInvite(nav);
   const [lobbyOn, setLobbyOn] = useState(view.lobby);
   const [saving, setSaving] = useState(false);
   const { copied, copy } = useCopy();
@@ -106,14 +111,6 @@ export function RoomReadyView(props: ViewProps & { view: ViewOf<"ready"> }) {
     }
   };
 
-  const invite = async (contactId: string) => {
-    try {
-      const receipt = await sendTelegramInvite(contactId, view.code);
-      nav.push({ name: "inviting", code: view.code, contactId, sentAt: receipt.sentAt });
-    } catch (err) {
-      toast(errorText(err));
-    }
-  };
 
   return (
     <ViewFrame name="ready" dir={dir}>
@@ -158,15 +155,21 @@ export function RoomReadyView(props: ViewProps & { view: ViewOf<"ready"> }) {
             {lobbyOn ? "Waiting room on" : "Waiting room off"}
           </Press>
         </Row>
-        {TELEGRAM_READY && people.length > 0 && (
+        {people.length > 0 && (
           <>
             <Row>
               <SectionLabel>Send via Telegram</SectionLabel>
             </Row>
-            <Row className="people">
+            <Row className="people" data-few={people.length < 4 || undefined}>
               {people.map((p) => (
-                <Press key={p.id} className="people__one" onClick={() => void invite(p.id)} aria-label={`Send to ${p.name} via Telegram`}>
-                  <span className="people__av">
+                <Press
+                  key={p.id}
+                  className="people__one"
+                  onClick={() => void send(p.handle!, p.name, { code: view.code, lobby: lobbyOn })}
+                  aria-label={`Send to ${p.name} via Telegram`}
+                  data-testid="ready-invite"
+                >
+                  <span className="people__av" data-busy={inviting === p.handle || undefined}>
                     <Avatar name={p.name} size={46} />
                   </span>
                   <span className="people__name">{p.name}</span>
@@ -199,12 +202,12 @@ export function RoomReadyView(props: ViewProps & { view: ViewOf<"ready"> }) {
 }
 
 /** Initials in a green ring, a soft ripple going out while we wait. */
-function PulseAvatar({ name }: { name: string }) {
+function PulseAvatar({ name, still }: { name: string; still?: boolean }) {
   const m = useMotionSet();
   return (
-    <div className="pulseav">
+    <div className="pulseav" data-still={still || undefined}>
       <span className="pulseav__halo" />
-      {!m.reduced && (
+      {!m.reduced && !still && (
         <motion.span
           className="pulseav__ripple"
           initial={{ scale: 1, opacity: 0 }}
@@ -219,33 +222,72 @@ function PulseAvatar({ name }: { name: string }) {
   );
 }
 
-// ---------- 03 Inviting (back once telegram invites exist) ----------
+// ---------- 03 Inviting ----------
 
 export function InvitingView(props: ViewProps & { view: ViewOf<"inviting"> }) {
   const { nav, dir, view } = props;
-  const contact = useStore(recents).find((c) => c.id === view.contactId);
-  const name = contact?.name ?? "them";
+  const m = useMotionSet();
+  const name = view.who;
   const { copied, copy } = useCopy();
   const { busy, enter } = useEnterRoom(props);
+  // it didn't go out: the link is the way now
+  const failed = view.status === "undeliverable" || view.status === "limited";
+
+  const line = {
+    sent: `Sent via Telegram · ${clockLabel(view.sentAt)}`,
+    needs_acceptance: `Sent · ${name} needs to accept first`,
+    undeliverable: `Couldn’t reach ${name} on Telegram`,
+    limited: "Too many invites, try again later",
+  }[view.status];
+
+  const copyButton = (
+    <Button
+      tone={failed ? "primary" : "secondary"}
+      icon={<CopyGlyph done={copied} size={failed ? 20 : 18} />}
+      onClick={() => void copy(inviteLink(view.code))}
+      data-testid="inviting-copy"
+    >
+      {copied ? "Copied" : "Copy link"}
+    </Button>
+  );
+  const enterButton = (
+    <Button tone={failed ? "secondary" : "primary"} icon={failed ? undefined : enterIcon} busy={busy} onClick={() => void enter(view.code, view.lobby)}>
+      Enter room
+    </Button>
+  );
 
   return (
     <ViewFrame name="inviting" dir={dir}>
       <ViewHead />
       <ViewBody className="vbody--center">
         <Row>
-          <PulseAvatar name={name} />
+          <PulseAvatar name={name} still={failed} />
         </Row>
         <Row>
           <h1 className="vtitle vtitle--center">Inviting {name}</h1>
         </Row>
-        <Row className="sent">
-          <span className="okdot">
-            <CheckIcon size={13} strokeWidth={3} />
-          </span>
-          Sent via Telegram · {clockLabel(view.sentAt)}
+        <Row className="sent" data-failed={failed || undefined} data-testid="invite-status" data-status={view.status}>
+          <motion.span
+            key={view.status}
+            className="sent__line"
+            initial={{ opacity: 0, y: m.reduced ? 0 : 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={m.sweep}
+          >
+            {failed ? (
+              <span className="faildot" aria-hidden>
+                !
+              </span>
+            ) : (
+              <span className="okdot">
+                <CheckIcon size={13} strokeWidth={3} />
+              </span>
+            )}
+            {line}
+          </motion.span>
         </Row>
         <Row>
-          <p className="waitline">Waiting for {name} to join…</p>
+          <p className="waitline">{failed ? `Send ${name} the link instead.` : `Waiting for ${name} to join…`}</p>
         </Row>
         <Row>
           <span className="zchip zchip--mono">
@@ -255,15 +297,9 @@ export function InvitingView(props: ViewProps & { view: ViewOf<"inviting"> }) {
         </Row>
       </ViewBody>
       <ViewFoot>
-        <Row>
-          <Button icon={enterIcon} busy={busy} onClick={() => void enter(view.code, false)}>
-            Enter room
-          </Button>
-        </Row>
+        <Row>{failed ? copyButton : enterButton}</Row>
         <Row className="pair">
-          <Button tone="secondary" icon={<CopyGlyph done={copied} size={18} />} onClick={() => void copy(inviteLink(view.code))}>
-            {copied ? "Copied" : "Copy link"}
-          </Button>
+          {failed ? enterButton : copyButton}
           <Button tone="secondary" onClick={nav.back}>
             Cancel
           </Button>
