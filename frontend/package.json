@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "e2e": "node e2e/call.mjs && node e2e/lobby.mjs"
+    "e2e": "node e2e/call.mjs && node e2e/lobby.mjs",
+    "e2e:telegram": "node e2e/telegram.mjs"
   },
   "dependencies": {
     "motion": "14.7.1",
