@@ -12,19 +12,37 @@ const control = (path, body) =>
 // a fresh entry each time: going to the same url again would restore the open screen
 const fresh = (page) => page.goto(`${WEB}/?t=${Date.now()}`);
 
-async function link(page, handle, name) {
+async function openSettings(page) {
   await fresh(page);
   await page.getByRole("button", { name: "Settings" }).click();
-  const status = page.getByTestId("tg-status");
-  await status.filter({ hasText: "Not connected" }).waitFor();
+  return page.getByTestId("tg-status");
+}
+
+// the "bot" opens in a new tab: close it, like coming back from Telegram
+async function tapConnect(page) {
   const tab = page.context().waitForEvent("page");
   await page.getByTestId("tg-connect").click();
-  // the "bot" opened in a new tab
   await (await tab).close();
+}
+
+async function link(page, handle, name, { reload = false } = {}) {
+  let status = await openSettings(page);
+  await status.filter({ hasText: /Not connected|Link expired/ }).waitFor();
+  await tapConnect(page);
   await status.filter({ hasText: "Waiting for Telegram…" }).waitFor();
+  if (reload) {
+    // phones often drop the tab while Telegram is in front
+    status = await openSettings(page);
+    await status.filter({ hasText: "Waiting for Telegram…" }).waitFor();
+    console.log(`${name}: still waiting after a reload`);
+  }
   await control("/__link", { handle, name });
-  await status.filter({ hasText: `Connected as @${handle}` }).waitFor({ timeout: 8000 });
-  console.log(`${name}: linked as @${handle}`);
+  await status.filter({ hasText: `Linked as @${handle}` }).waitFor({ timeout: 8000 });
+  const cookie = (await page.context().cookies()).find((c) => c.name === "kolo_tg");
+  if (!cookie?.httpOnly || cookie.domain !== new URL(WEB).hostname) {
+    throw new Error(`kolo_tg should be an httpOnly cookie on the frontend's host: ${JSON.stringify(cookie)}`);
+  }
+  console.log(`${name}: linked as @${handle}, kolo_tg on ${cookie.domain}`);
   await page.getByRole("button", { name: "Back from settings" }).click();
 }
 
@@ -61,7 +79,15 @@ try {
   await yan.getByTestId("connect-to-invite").waitFor();
   console.log("Not linked: 'Connect Telegram to invite by ID'");
 
-  await link(yan, "yan_k", "Yan");
+  // a link that runs out
+  const status = await openSettings(yan);
+  await tapConnect(yan);
+  await control("/__expire");
+  await status.filter({ hasText: "Link expired — try again" }).waitFor({ timeout: 8000 });
+  await yan.getByTestId("tg-connect").filter({ hasText: "Try again" }).waitFor();
+  console.log("Expired link: 'Link expired — try again'");
+
+  await link(yan, "yan_k", "Yan", { reload: true });
 
   // a bad ID never leaves the browser
   await yan.getByTestId("new-meeting").click();
