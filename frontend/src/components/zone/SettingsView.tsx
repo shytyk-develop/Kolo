@@ -1,7 +1,7 @@
 "use client";
 
 import { AnimatePresence, motion } from "motion/react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { CheckIcon, SendIcon, Spinner, TrashIcon } from "@/components/Icons";
 import {
@@ -10,11 +10,15 @@ import {
   errorText,
   linkedAt,
   linking,
-  openTelegram,
+  beginLink,
+  openFromTap,
+  prepared,
+  prepareLink,
   refreshTelegram,
   resumeLink,
   startLink,
   telegram,
+  waitingDeepLink,
 } from "@/lib/api";
 import { useMotionSet } from "@/lib/motion";
 import { clearRecents, lobby, profile, recents } from "@/lib/people";
@@ -115,6 +119,8 @@ function TelegramCard() {
   const [armed, setArmed] = useState(false);
   const [success, setSuccess] = useState(false);
   const online = useOnline();
+  const prep = useStore(prepared);
+  const head = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     void refreshTelegram();
@@ -135,6 +141,18 @@ function TelegramCard() {
     const id = setTimeout(() => setSuccess(false), left);
     return () => clearTimeout(id);
   }, [at]);
+  // Connect needs its link before the tap (see prepareLink); a new one before this one runs out
+  const wantLink = online && tg.ready === true && !tg.handle && phase !== "waiting";
+  useEffect(() => {
+    // the hidden warm-up copy of this screen doesn't ask
+    if (!wantLink || head.current?.closest("[inert]")) return;
+    if (!prep) {
+      void prepareLink();
+      return;
+    }
+    const id = setTimeout(() => prepared.set(null), Math.max(0, prep.until - Date.now() - 90_000));
+    return () => clearTimeout(id);
+  }, [wantLink, prep]);
 
   const state: CardState = !online
     ? "offline"
@@ -202,7 +220,7 @@ function TelegramCard() {
 
   return (
     <Row className="tgcard" data-state={state} data-success={(success && state === "linked") || undefined} data-testid="tg-card">
-      <div className="tgcard__head">
+      <div className="tgcard__head" ref={head}>
         <span className="tgcard__icon">{icon}</span>
         <p className="tgcard__title">Telegram</p>
         <AnimatePresence mode="popLayout" initial={false}>
@@ -215,9 +233,7 @@ function TelegramCard() {
               exit={{ opacity: 0, transition: m.leave }}
             >
               {(state === "idle" || state === "expired") && (
-                <Press className="tgcard__btn" onClick={() => void connect()} aria-label="Connect Telegram" data-testid="tg-connect">
-                  {state === "expired" ? "Try again" : "Connect"}
-                </Press>
+                <ConnectLink className="tgcard__btn" label={state === "expired" ? "Try again" : "Connect"} testId="tg-connect" fallback={connect} />
               )}
               {state === "waiting" && (
                 <Press className="tgcard__btn tgcard__btn--quiet" onClick={cancelLink} data-testid="tg-cancel">
@@ -258,9 +274,7 @@ function TelegramCard() {
           <p className="tgcard__text" data-testid="tg-elsewhere">
             Open Kolo in the browser where you pressed Connect.
           </p>
-          <Press className="tgcard__btn tgcard__btn--wide" onClick={() => void connect()} data-testid="tg-connect-here">
-            Connect here instead
-          </Press>
+          <ConnectLink className="tgcard__btn tgcard__btn--wide" label="Connect here instead" testId="tg-connect-here" fallback={connect} />
         </>
       ) : state === "offline" ? (
         <p className="tgcard__text" data-testid="tg-offline">
@@ -268,14 +282,71 @@ function TelegramCard() {
         </p>
       ) : state === "waiting" ? (
         <p className="tgcard__text">
-          Choose your Kolo ID in the bot, then come back.{" "}
-          <button type="button" className="tgcard__again" onClick={openTelegram}>
-            Open Telegram
-          </button>
+          Choose your Kolo ID in the bot, then come back.
+          {waitingDeepLink() && (
+            <>
+              {" "}
+              <a
+                className="tgcard__again"
+                href={waitingDeepLink()}
+                target="_blank"
+                rel="noreferrer"
+                onClick={(e) => openFromTap(e, waitingDeepLink())}
+                data-testid="tg-open"
+              >
+                Open Telegram
+              </a>
+            </>
+          )}
         </p>
       ) : (
         <p className="tgcard__text">Invite people from Recent straight to Telegram, in one tap.</p>
       )}
     </Row>
+  );
+}
+
+/**
+ * Connect as a real link to the bot, so one tap opens Telegram (the app, on phones).
+ * Until the link is ready (or if getting it failed) it's a button that gets one on tap.
+ */
+function ConnectLink({
+  className,
+  label,
+  testId,
+  fallback,
+}: {
+  className: string;
+  label: string;
+  testId: string;
+  fallback: () => Promise<void>;
+}) {
+  const m = useMotionSet();
+  const prep = useStore(prepared);
+  const ready = prep && prep.until - Date.now() > 60_000 ? prep : null;
+  if (!ready) {
+    return (
+      <Press className={className} onClick={() => void fallback()} aria-label="Connect Telegram" data-testid={testId}>
+        {label}
+      </Press>
+    );
+  }
+  return (
+    <motion.a
+      className={className}
+      href={ready.deepLink}
+      target="_blank"
+      rel="noreferrer"
+      aria-label="Connect Telegram"
+      whileTap={m.reduced ? undefined : m.press}
+      transition={m.snap}
+      onClick={(e) => {
+        openFromTap(e, ready.deepLink);
+        beginLink(ready);
+      }}
+      data-testid={testId}
+    >
+      {label}
+    </motion.a>
   );
 }

@@ -141,10 +141,83 @@ async function poll(): Promise<void> {
   }
 }
 
-/** Opens the bot in a new tab (this one stays) and waits for it. Call from the tap itself. */
+// ---------- Connect: a real link to the bot, made before the tap ----------
+// Phones open the Telegram app only for a link the person taps, not for a page script
+// navigates to after a request. So the link is fetched when Settings shows, and Connect is an <a>.
+
+interface Prepared {
+  token: string;
+  deepLink: string;
+  until: number;
+}
+
+const PREPARED_KEY = "kolo.tg-prepared";
+// a prepared link this close to expiring isn't offered anymore
+const PREPARED_MARGIN_MS = 60_000;
+
+const usable = (p: Prepared | null) => (p && p.until - Date.now() > PREPARED_MARGIN_MS ? p : null);
+
+export const prepared = createStore<Prepared | null>(
+  () => usable(readJson<Prepared>("local", PREPARED_KEY)),
+  null,
+  (value) => writeJson("local", PREPARED_KEY, value),
+);
+
+let preparing: Promise<void> | null = null;
+
+/** A fresh bot link for the Connect button (reused while it's good). Quiet on failure: Connect falls back to startLink. */
+export function prepareLink(): Promise<void> {
+  if (usable(prepared.get())) return Promise.resolve();
+  preparing ??= (async () => {
+    try {
+      const link = await telegramApi.startLink();
+      prepared.set({ token: link.token, deepLink: link.deep_link, until: Date.now() + link.expires_in * 1000 });
+    } catch {
+      prepared.set(null);
+    } finally {
+      preparing = null;
+    }
+  })();
+  return preparing;
+}
+
+export const usablePrepared = () => usable(prepared.get());
+
+/**
+ * The tap on a link to the bot. Desktop: our own window (so it can be closed once linked).
+ * Touch screens: the browser follows the <a> itself, which is what opens the Telegram app.
+ */
+export function openFromTap(event: { preventDefault: () => void }, url: string): void {
+  if (!window.matchMedia("(pointer: fine)").matches) return;
+  const tab = window.open(url, "_blank");
+  if (!tab) return;
+  // the window opened: the <a> mustn't open a second one
+  event.preventDefault();
+  tgWindow = tab;
+}
+
+/** Connect was tapped on a prepared link: from now on we wait for the bot. */
+export function beginLink(link: Prepared): void {
+  writeJson("local", LINK_KEY, { token: link.token, until: link.until, deepLink: link.deepLink });
+  prepared.set(null);
+  linking.set("waiting");
+  void poll();
+}
+
+/** The bot link of the link we're waiting for ("" when this tab only knows the token). */
+export const waitingDeepLink = () => pending()?.deepLink ?? "";
+
+/** Fallback when no link was ready: open a tab in the tap, point it at the bot once the link exists. */
 export async function startLink(): Promise<void> {
-  // opened inside the tap, or the popup blocker eats it; filled in once the link exists
   const tab = window.open("", "_blank");
+  try {
+    tab?.document.write(
+      '<meta name="viewport" content="width=device-width"><title>Telegram</title>' +
+        '<p style="font:16px -apple-system,sans-serif;text-align:center;margin-top:40vh">Opening Telegram…</p>',
+    );
+  } catch {
+    // not ours to write into
+  }
   let link;
   try {
     link = await telegramApi.startLink();
@@ -160,12 +233,6 @@ export async function startLink(): Promise<void> {
     tgWindow = tab;
   }
   void poll();
-}
-
-/** The bot again, if its tab didn't open or got closed. */
-export function openTelegram(): void {
-  const p = pending();
-  if (p?.deepLink) tgWindow = window.open(p.deepLink, "_blank") ?? tgWindow;
 }
 
 /** A link started earlier (another tab, or before a reload): keep waiting for it. */

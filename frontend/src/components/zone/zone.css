@@ -1797,6 +1797,8 @@
   grid-row: 1;
 }
 .tgcard__btn {
+  /* also an <a> (Connect is a real link to the bot) */
+  text-decoration: none;
   display: flex;
   align-items: center;
   justify-content: center;

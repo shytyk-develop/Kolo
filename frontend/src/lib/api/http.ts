@@ -9,7 +9,7 @@ export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000
 // a backend that's down can hang behind the /api proxy: give up fast and show "offline"
 const TIMEOUT_MS = 4000;
 // calls the backend passes on to Telegram (notify): slow there isn't "down" here
-const SLOW_MS = 12_000;
+const SLOW_MS = 20_000;
 
 interface Options {
   timeoutMs?: number;
