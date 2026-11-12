@@ -33,22 +33,48 @@ export async function refreshTelegram(): Promise<TelegramState> {
 
 // ---------- linking: Settings → the bot in Telegram → back here ----------
 
-export type LinkPhase = "idle" | "waiting" | "expired";
+// elsewhere: a Back to Kolo link opened in a browser that didn't press Connect
+export type LinkPhase = "idle" | "waiting" | "expired" | "elsewhere";
 
-// the token survives a reload: phones often drop the tab while Telegram is in front
-const LINK_KEY = "kolo:tg-link";
+// localStorage: a new tab of this browser (Back to Kolo opens one) can finish the link too
+const LINK_KEY = "kolo.tg-link";
 interface Pending {
   token: string;
   until: number;
+  deepLink: string;
 }
 
-export const linking = createStore<LinkPhase>(() => (readJson<Pending>("session", LINK_KEY) ? "waiting" : "idle"), "idle");
+const LINK_TTL_MS = 10 * 60_000;
 
+function pending(): Pending | null {
+  const p = readJson<Pending>("local", LINK_KEY);
+  return p && p.until > Date.now() ? p : null;
+}
+
+export const linking = createStore<LinkPhase>(() => (pending() ? "waiting" : "idle"), "idle");
+// when the link went through here: the card plays its success moment
+export const linkedAt = createStore<number>(() => 0, 0);
+
+// the Telegram tab we opened: closed again once the link is done
+let tgWindow: Window | null = null;
 let running = false;
 
-function finish(phase: LinkPhase) {
-  writeJson("session", LINK_KEY, null);
+function settle(phase: LinkPhase) {
+  writeJson("local", LINK_KEY, null);
   linking.set(phase);
+}
+
+function linked(handle: string) {
+  telegram.set((t) => ({ ...t, handle }));
+  settle("idle");
+  linkedAt.set(Date.now());
+  try {
+    tgWindow?.close();
+  } catch {
+    // not ours to close anymore
+  }
+  tgWindow = null;
+  window.focus();
 }
 
 // the next poll: after POLL_MS, or right away when the tab is back in front
@@ -72,21 +98,27 @@ async function poll(): Promise<void> {
   running = true;
   try {
     while (linking.get() === "waiting") {
-      const pending = readJson<Pending>("session", LINK_KEY);
-      if (!pending || Date.now() > pending.until) return finish(pending ? "expired" : "idle");
+      const p = pending();
+      if (!p) {
+        // done in another tab, or ran out
+        const handle = (await refreshTelegram()).handle;
+        if (handle) return linked(handle);
+        return settle(readJson("local", LINK_KEY) ? "expired" : "idle");
+      }
       try {
-        const status = await telegramApi.linkStatus(pending.token);
-        if (status.status === "linked" && status.handle) {
-          telegram.set((t) => ({ ...t, handle: status.handle! }));
-          return finish("idle");
-        }
-        if (status.status === "expired") return finish("expired");
+        const status = await telegramApi.linkStatus(p.token);
+        if (status.status === "linked" && status.handle) return linked(status.handle);
+        if (status.status === "expired") return settle("expired");
       } catch (err) {
-        // the link is gone (or this browser never asked for it); anything else is a blip
-        if (err instanceof ApiError && err.code === "link_not_found") return finish("expired");
+        // the link is gone, or another Connect replaced it; anything else is a blip
+        if (err instanceof ApiError && (err.code === "link_not_found" || err.code === "link_other_browser")) {
+          const handle = (await refreshTelegram()).handle;
+          return handle ? linked(handle) : settle("expired");
+        }
       }
       // /me may know already (linked in another tab): show it at once
-      if ((await refreshTelegram()).handle) return finish("idle");
+      const handle = (await refreshTelegram()).handle;
+      if (handle) return linked(handle);
       if (linking.get() !== "waiting") return;
       await nextTick();
     }
@@ -95,8 +127,9 @@ async function poll(): Promise<void> {
   }
 }
 
-/** Opens the bot in a new tab and waits for it. Call from the tap itself (popup blockers). */
+/** Opens the bot in a new tab (this one stays) and waits for it. Call from the tap itself. */
 export async function startLink(): Promise<void> {
+  // opened inside the tap, or the popup blocker eats it; filled in once the link exists
   const tab = window.open("", "_blank");
   let link;
   try {
@@ -105,20 +138,65 @@ export async function startLink(): Promise<void> {
     tab?.close();
     throw err;
   }
-  writeJson("session", LINK_KEY, { token: link.token, until: Date.now() + link.expires_in * 1000 });
+  writeJson("local", LINK_KEY, { token: link.token, until: Date.now() + LINK_TTL_MS, deepLink: link.deep_link });
   linking.set("waiting");
-  if (tab) tab.location.href = link.deep_link;
-  else window.location.href = link.deep_link;
+  if (tab) {
+    // keeps its opener: a window cut off from us can't be closed by us later
+    tab.location.href = link.deep_link;
+    tgWindow = tab;
+  }
   void poll();
 }
 
-/** A link started before a reload: keep waiting for it. */
+/** The bot again, if its tab didn't open or got closed. */
+export function openTelegram(): void {
+  const p = pending();
+  if (p?.deepLink) tgWindow = window.open(p.deepLink, "_blank") ?? tgWindow;
+}
+
+/** A link started earlier (another tab, or before a reload): keep waiting for it. */
 export function resumeLink(): void {
+  if (linking.get() !== "waiting" && pending()) linking.set("waiting");
   if (linking.get() === "waiting") void poll();
 }
 
 export function cancelLink(): void {
-  finish("idle");
+  settle("idle");
+}
+
+// ---------- landing on ?link=<token>: the bot's Back to Kolo ----------
+
+/** Takes ?link= (and #settings) off the url, so a reload or Back can't replay it. */
+export function takeLandingLink(): { token: string | null; settings: boolean } {
+  if (typeof window === "undefined") return { token: null, settings: false };
+  const url = new URL(window.location.href);
+  const token = url.searchParams.get("link");
+  const settings = url.hash === "#settings";
+  if (!token && !settings) return { token: null, settings: false };
+  url.searchParams.delete("link");
+  url.hash = "";
+  history.replaceState(history.state, "", url.pathname + url.search);
+  return { token, settings: true };
+}
+
+/** Finish the link the bot sent back. Only works in the browser that pressed Connect (its cookie). */
+export async function finishLanding(token: string): Promise<void> {
+  linking.set("waiting");
+  try {
+    const status = await telegramApi.linkStatus(token);
+    if (status.status === "linked" && status.handle) return linked(status.handle);
+    if (status.status === "expired") return settle("expired");
+    // not picked an ID yet: wait for it like the Connect tab does
+    if (!pending()) writeJson("local", LINK_KEY, { token, until: Date.now() + LINK_TTL_MS, deepLink: "" });
+    void poll();
+  } catch (err) {
+    const handle = (await refreshTelegram()).handle;
+    if (handle) return linked(handle);
+    if (err instanceof ApiError && err.code === "link_other_browser") return settle("elsewhere");
+    if (err instanceof ApiError && err.code === "link_not_found") return settle("expired");
+    settle("idle");
+    throw err;
+  }
 }
 
 export async function disconnectTelegram(): Promise<void> {

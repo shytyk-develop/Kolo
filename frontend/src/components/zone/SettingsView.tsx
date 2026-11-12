@@ -3,8 +3,19 @@
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useState } from "react";
 
-import { SendIcon, Spinner, TrashIcon } from "@/components/Icons";
-import { cancelLink, disconnectTelegram, errorText, linking, refreshTelegram, resumeLink, startLink, telegram } from "@/lib/api";
+import { CheckIcon, SendIcon, Spinner, TrashIcon } from "@/components/Icons";
+import {
+  cancelLink,
+  disconnectTelegram,
+  errorText,
+  linkedAt,
+  linking,
+  openTelegram,
+  refreshTelegram,
+  resumeLink,
+  startLink,
+  telegram,
+} from "@/lib/api";
 import { useMotionSet } from "@/lib/motion";
 import { clearRecents, lobby, profile, recents } from "@/lib/people";
 import { useStore } from "@/lib/store";
@@ -87,15 +98,20 @@ export function SettingsView({ dir }: ViewProps) {
   );
 }
 
-type CardState = "off" | "idle" | "waiting" | "expired" | "linked";
+type CardState = "off" | "idle" | "waiting" | "expired" | "elsewhere" | "linked";
+
+// how long the "connected" moment plays
+const SUCCESS_MS = 1800;
 
 function TelegramCard() {
   const m = useMotionSet();
   const tg = useStore(telegram);
   const phase = useStore(linking);
+  const at = useStore(linkedAt);
   const [busy, setBusy] = useState(false);
   // one tap arms it, the second disconnects: it deletes the Kolo ID in the bot
   const [armed, setArmed] = useState(false);
+  const [success, setSuccess] = useState(false);
 
   useEffect(() => {
     void refreshTelegram();
@@ -106,6 +122,14 @@ function TelegramCard() {
     const id = setTimeout(() => setArmed(false), 3000);
     return () => clearTimeout(id);
   }, [armed]);
+  // just linked (here, or this view opened from Back to Kolo): a short green moment
+  useEffect(() => {
+    const left = at + SUCCESS_MS - Date.now();
+    if (left <= 0) return;
+    setSuccess(true);
+    const id = setTimeout(() => setSuccess(false), left);
+    return () => clearTimeout(id);
+  }, [at]);
 
   const state: CardState = !tg.ready ? "off" : tg.handle ? "linked" : phase;
 
@@ -139,16 +163,34 @@ function TelegramCard() {
     idle: "Not connected",
     waiting: "Waiting for Telegram…",
     expired: "Link expired — try again",
-    linked: `Linked as @${tg.handle}`,
+    elsewhere: "Not connected in this browser",
+    linked: `Connected as @${tg.handle}`,
   }[state];
 
+  const icon =
+    state === "waiting" ? (
+      <Spinner size={18} />
+    ) : success && state === "linked" ? (
+      <motion.span
+        key="ok"
+        className="tgcard__ok"
+        initial={{ scale: m.reduced ? 1 : 0.4, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        transition={m.morph}
+      >
+        <CheckIcon size={18} strokeWidth={2.6} />
+      </motion.span>
+    ) : (
+      <SendIcon size={20} strokeWidth={2} />
+    );
+
   return (
-    <Row className="tgcard" data-state={state} data-testid="tg-card">
+    <Row className="tgcard" data-state={state} data-success={(success && state === "linked") || undefined} data-testid="tg-card">
       <div className="tgcard__head">
-        <span className="tgcard__icon">{state === "waiting" ? <Spinner size={18} /> : <SendIcon size={20} strokeWidth={2} />}</span>
+        <span className="tgcard__icon">{icon}</span>
         <p className="tgcard__title">Telegram</p>
         <AnimatePresence mode="popLayout" initial={false}>
-          {state !== "off" && (
+          {state !== "off" && state !== "elsewhere" && (
             <motion.div
               key={state}
               className="tgcard__actions"
@@ -195,7 +237,25 @@ function TelegramCard() {
           </AnimatePresence>
         </div>
       </div>
-      <p className="tgcard__text">Invite people from Recent straight to Telegram, in one tap.</p>
+      {state === "elsewhere" ? (
+        <>
+          <p className="tgcard__text" data-testid="tg-elsewhere">
+            Open Kolo in the browser where you pressed Connect.
+          </p>
+          <Press className="tgcard__btn tgcard__btn--wide" onClick={() => void connect()} data-testid="tg-connect-here">
+            Connect here instead
+          </Press>
+        </>
+      ) : state === "waiting" ? (
+        <p className="tgcard__text">
+          Choose your Kolo ID in the bot, then come back.{" "}
+          <button type="button" className="tgcard__again" onClick={openTelegram}>
+            Open Telegram
+          </button>
+        </p>
+      ) : (
+        <p className="tgcard__text">Invite people from Recent straight to Telegram, in one tap.</p>
+      )}
     </Row>
   );
 }

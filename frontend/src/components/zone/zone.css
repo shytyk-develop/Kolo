@@ -1823,6 +1823,47 @@
 .tgcard[data-state="expired"] .tgcard__meta {
   color: var(--red);
 }
+.tgcard__btn--wide {
+  width: 100%;
+  margin-top: 14px;
+  height: 42px;
+}
+.tgcard__again {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.tgcard__ok {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: var(--green);
+  color: #000;
+}
+/* the connected moment: a soft green ring that fades out */
+.tgcard[data-success] {
+  animation: tg-linked 1.8s ease-out both;
+}
+@keyframes tg-linked {
+  0% {
+    box-shadow: 0 0 0 0 rgba(48, 209, 88, 0.55);
+  }
+  100% {
+    box-shadow: 0 0 0 14px rgba(48, 209, 88, 0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tgcard[data-success] {
+    animation: none;
+  }
+}
 .view--settings .zrow {
   margin-top: 18px;
 }

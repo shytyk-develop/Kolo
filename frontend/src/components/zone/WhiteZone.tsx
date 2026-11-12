@@ -9,7 +9,7 @@ import { BackIcon, PlusIcon } from "@/components/Icons";
 import { useMedia } from "@/components/MediaProvider";
 import { useSplit } from "@/hooks/useSplit";
 import { useViews, type Nav, type View } from "@/hooks/useViews";
-import { reconnect, refreshTelegram, resumeLink, roomGone } from "@/lib/api";
+import { errorText, finishLanding, reconnect, refreshTelegram, resumeLink, roomGone, takeLandingLink } from "@/lib/api";
 import { DROPPED_SHOWN_MS, lastCall, type LastCall } from "@/lib/people";
 import { useStore } from "@/lib/store";
 
@@ -22,7 +22,7 @@ import { ContactMenu, NewMeetingView } from "./NewMeetingView";
 import { GuestWaitView, HostLobbyView, InvitingView, RoomReadyView } from "./RoomViews";
 import { SettingsView } from "./SettingsView";
 import { Tab, type TabPos } from "./Tab";
-import { ToastHost } from "./ui";
+import { toast, ToastHost } from "./ui";
 import { ZoneContext, type ZoneApi } from "./ZoneContext";
 
 import "./zone.css";
@@ -111,8 +111,20 @@ function screenFromCall(): View | null {
   return { name: c.show, code: c.code };
 }
 
+// the bot's Back to Kolo (?link=<token>#settings): Settings first, the link finishes there
+let landingToken: string | null = null;
+
+function firstScreen(): View | null {
+  const fromCall = screenFromCall();
+  if (fromCall) return fromCall;
+  const landing = takeLandingLink();
+  if (!landing.settings) return null;
+  landingToken = landing.token;
+  return { name: "settings" };
+}
+
 export function WhiteZone() {
-  const nav = useViews(screenFromCall);
+  const nav = useViews(firstScreen);
   const media = useMedia();
   const split = useSplit();
   const call = useStore(lastCall);
@@ -132,9 +144,21 @@ export function WhiteZone() {
 
   // what the server says about Telegram: turns the invite parts on
   useEffect(() => {
-    void refreshTelegram();
+    const token = landingToken;
+    landingToken = null;
+    if (token) finishLanding(token).catch((err) => toast(errorText(err, "Couldn’t finish connecting. Try again.")));
+    else void refreshTelegram();
     // back from the bot, maybe after the phone reloaded this tab
     resumeLink();
+    // linked in another tab of this browser: show it as soon as this one is looked at
+    const onVisible = () => document.visibilityState === "visible" && void refreshTelegram();
+    const onStorage = (e: StorageEvent) => e.key === "kolo.tg-link" && void refreshTelegram();
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("storage", onStorage);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("storage", onStorage);
+    };
   }, []);
 
   // the dropped call's room may be gone by now: then there's nothing to go back to
