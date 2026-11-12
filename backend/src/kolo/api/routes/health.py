@@ -7,10 +7,16 @@ from kolo.api.deps import ContainerDep
 
 router = APIRouter(tags=["health"])
 
+# never cached: a stale "ok" (or a stale error) is worse than none
+NO_STORE = {"Cache-Control": "no-store"}
+
+
+# /api/v1/health: the same, reachable through the frontend's /api proxy (its offline probe)
 @router.get("/health")
-async def liveness() -> dict:
-    """Liveness: the process is alive."""
-    return {"status": "ok"}
+@router.get("/api/v1/health")
+async def liveness() -> JSONResponse:
+    """Liveness: the process is up and serving."""
+    return JSONResponse({"status": "ok"}, headers=NO_STORE)
 
 @router.get("/health/ready")
 async def readiness(c: ContainerDep) -> JSONResponse:
@@ -27,4 +33,5 @@ async def readiness(c: ContainerDep) -> JSONResponse:
     return JSONResponse(
         status_code=200 if healthy else 503,
         content={"status": "ok" if healthy else "degraded", "checks": results},
+        headers=NO_STORE,
     )
