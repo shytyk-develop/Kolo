@@ -82,6 +82,10 @@ class Settings(BaseSettings):
 
     frontend_url: str = "http://localhost:3000"
 
+    # behind the frontend's /api proxy (Vercel): take the client ip from X-Forwarded-For.
+    # Without it every visitor looks like one of Vercel's few ips to the per-ip limits
+    trust_proxy: bool = False
+
     # Telegram invites through the notify service; any of these missing = Telegram is off
     notify_url: str | None = Field(None, validation_alias=AliasChoices("NOTIFY_URL", "KOLO_NOTIFY_URL"))
     notify_api_key: SecretStr | None = Field(

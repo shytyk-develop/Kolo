@@ -1,9 +1,9 @@
 # the linked Kolo ID lives in a signed httpOnly cookie, out of the client's reach
 
-from fastapi import APIRouter, Request, Response
+from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel
 
-from kolo.api.deps import ContainerDep
+from kolo.api.deps import ContainerDep, is_https
 from kolo.container import Container
 from kolo.core.tg_cookie import (
     COOKIE,
@@ -19,7 +19,13 @@ from kolo.core.tg_cookie import (
 from kolo.domain.errors import LinkNotFound, TelegramDisabled
 from kolo.services.telegram import TelegramService
 
-router = APIRouter(tags=["me"])
+
+def no_store(response: Response) -> None:
+    # per browser, never cached by the proxy in front
+    response.headers["Cache-Control"] = "no-store"
+
+
+router = APIRouter(tags=["me"], dependencies=[Depends(no_store)])
 
 
 class MeResponse(BaseModel):
@@ -57,8 +63,9 @@ def linked_of(request: Request, c: Container) -> Linked | None:
 
 
 def _cookie(request: Request, c: Container) -> dict:
-    # plain http only on a dev machine, where Safari would drop a Secure cookie
-    secure = request.url.scheme == "https" or c.settings.env == "prod"
+    # no Domain: host-only, so it belongs to whatever host the browser talked to (the frontend, via /api).
+    # Secure unless it's plain http on a dev machine, where Safari would drop it
+    secure = is_https(request) or c.settings.env == "prod"
     return {"httponly": True, "secure": secure, "samesite": "lax", "path": "/"}
 
 
@@ -110,6 +117,6 @@ async def unlink(request: Request, c: ContainerDep) -> Response:
     if linked is not None:
         # notify first: if it fails the cookie stays and they can try again
         await telegram.unlink(linked.handle)
-    response = Response(status_code=204)
+    response = Response(status_code=204, headers={"Cache-Control": "no-store"})
     forget(response, request, c)
     return response

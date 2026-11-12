@@ -359,3 +359,36 @@ async def test_expired_rooms_end_their_invites(tg_settings, notify):
         assert await c.repo.take_invites(live.code) == ["inv-live"]
     finally:
         await c.aclose()
+
+
+# ---------- behind the frontend's /api proxy ----------
+
+
+def test_cookie_is_host_only_and_secure_behind_an_https_proxy(tg_client, notify):
+    headers = {"X-Forwarded-Proto": "https", "X-Forwarded-Host": "kolo-black.vercel.app"}
+    r = tg_client.post("/api/v1/me/telegram/link", headers=headers)
+    cookie = r.headers["set-cookie"]
+    assert "Secure" in cookie and "HttpOnly" in cookie and "SameSite=lax" in cookie
+    assert "Domain" not in cookie and "Path=/" in cookie
+    assert r.headers["cache-control"] == "no-store"
+    # plain http dev: no Secure, or Safari drops it on localhost
+    assert "Secure" not in tg_client.post("/api/v1/me/telegram/link").headers["set-cookie"]
+
+
+def test_me_is_never_cached(tg_client):
+    assert tg_client.get("/api/v1/me").headers["cache-control"] == "no-store"
+
+
+def test_client_ip_from_the_proxy_only_when_trusted(tg_settings, events):
+    from kolo.api.deps import client_ip
+
+    class Req:
+        def __init__(self, trust: bool) -> None:
+            self.headers = {"x-forwarded-for": "203.0.113.7, 10.0.0.1"}
+            self.client = type("C", (), {"host": "76.76.21.21"})()
+            settings = tg_settings.model_copy(update={"trust_proxy": trust})
+            container = type("K", (), {"settings": settings})
+            self.app = type("A", (), {"state": type("S", (), {"container": container})})
+
+    assert client_ip(Req(trust=False)) == "76.76.21.21"
+    assert client_ip(Req(trust=True)) == "203.0.113.7"
