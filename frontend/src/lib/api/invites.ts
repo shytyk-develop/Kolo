@@ -1,3 +1,4 @@
+import { dbg } from "../debug";
 import { createStore, readJson, writeJson } from "../store";
 import type { InviteStatus } from "../types";
 import { ApiError, telegramApi } from "./http";
@@ -5,13 +6,21 @@ import { ApiError, telegramApi } from "./http";
 export type { InviteStatus };
 
 export interface TelegramState {
-  // the server has Telegram set up
-  ready: boolean;
+  // the server has Telegram set up; null = don't know yet
+  ready: boolean | null;
   // my Kolo ID, null until linked
   handle: string | null;
 }
 
-export const telegram = createStore<TelegramState>(() => ({ ready: false, handle: null }), { ready: false, handle: null });
+// the last /me, shown right away on load and checked again in the background (nothing secret in it)
+const ME_KEY = "kolo.me.v1";
+const UNKNOWN: TelegramState = { ready: null, handle: null };
+
+export const telegram = createStore<TelegramState>(
+  () => readJson<TelegramState>("local", ME_KEY) ?? UNKNOWN,
+  UNKNOWN,
+  (value) => writeJson("local", ME_KEY, value),
+);
 
 const HANDLE_RE = /^[a-z0-9_]{3,20}$/;
 export const normalizeHandle = (raw: string) => raw.trim().replace(/^@/, "").toLowerCase();
@@ -20,13 +29,15 @@ export const HANDLE_RULES = "3–20 characters: a–z, 0–9 and _";
 
 export const POLL_MS = 2500;
 
-/** Ask the server what's set up and who this browser is. Quiet on failure: Telegram just stays off. */
+/** Ask the server what's set up and who this browser is. On failure the last known answer stays. */
 export async function refreshTelegram(): Promise<TelegramState> {
   try {
     const me = await telegramApi.me();
-    telegram.set({ ready: me.telegram, handle: me.handle ?? null });
+    const next = { ready: me.telegram, handle: me.handle ?? null };
+    // same answer: no re-render, no flicker
+    telegram.set((t) => (t.ready === next.ready && t.handle === next.handle ? t : next));
   } catch {
-    // keep what we had
+    // offline (the server store knows) or a blip: keep what we had
   }
   return telegram.get();
 }
@@ -107,9 +118,11 @@ async function poll(): Promise<void> {
       }
       try {
         const status = await telegramApi.linkStatus(p.token);
+        dbg("link: status", { status: status.status });
         if (status.status === "linked" && status.handle) return linked(status.handle);
         if (status.status === "expired") return settle("expired");
       } catch (err) {
+        dbg("link: status failed", { code: err instanceof ApiError ? err.code : String(err) });
         // the link is gone, or another Connect replaced it; anything else is a blip
         if (err instanceof ApiError && (err.code === "link_not_found" || err.code === "link_other_browser")) {
           const handle = (await refreshTelegram()).handle;
@@ -120,6 +133,7 @@ async function poll(): Promise<void> {
       const handle = (await refreshTelegram()).handle;
       if (handle) return linked(handle);
       if (linking.get() !== "waiting") return;
+      dbg("link: waiting", { handle });
       await nextTick();
     }
   } finally {

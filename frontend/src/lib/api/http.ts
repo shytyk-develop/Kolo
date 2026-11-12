@@ -1,12 +1,21 @@
 import { dbg } from "../debug";
+import { reportOffline, reportOnline } from "../server";
 import type { InviteStatus, JoinTicket, LinkStart, LinkStatus, Me, RoomCreated, RoomPublic } from "../types";
 
 // the backend itself, for websockets only (they carry the join token, no cookies).
 // Every http call goes to our own origin's /api, which next.config rewrites to the backend
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
-// a server that hangs must not keep a button spinning forever
-const TIMEOUT_MS = 10_000;
+// a backend that's down can hang behind the /api proxy: give up fast and show "offline"
+const TIMEOUT_MS = 4000;
+// calls the backend passes on to Telegram (notify): slow there isn't "down" here
+const SLOW_MS = 12_000;
+
+interface Options {
+  timeoutMs?: number;
+  // a timeout here doesn't mean the server is down
+  slow?: boolean;
+}
 
 export class ApiError extends Error {
   constructor(
@@ -21,14 +30,16 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+async function request<T>(path: string, init?: RequestInit, opts: Options = {}): Promise<T> {
   const abort = new AbortController();
-  const timer = setTimeout(() => abort.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => abort.abort(), opts.timeoutMs ?? (opts.slow ? SLOW_MS : TIMEOUT_MS));
   let response: Response;
   try {
     response = await fetch(`/api/v1${path}`, {
       ...init,
       signal: abort.signal,
+      // never from a cache: a stale /me or health is worse than none
+      cache: "no-store",
       // same origin: the httpOnly Telegram cookie rides along; js never sees it
       credentials: "same-origin",
       headers: { "Content-Type": "application/json", ...init?.headers },
@@ -36,7 +47,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   } catch (err) {
     // fetch only throws when there's no answer at all ("Load failed", "Failed to fetch")
     dbg("fetch failed", { path, error: String(err) });
-    if (abort.signal.aborted) throw new ApiError(0, "timeout", "No answer from kolo. Try again in a moment.");
+    if (abort.signal.aborted) {
+      if (!opts.slow) reportOffline();
+      throw new ApiError(0, "timeout", "No answer from kolo. Try again in a moment.");
+    }
+    reportOffline();
     if (typeof navigator !== "undefined" && navigator.onLine === false) {
       throw new ApiError(0, "offline", "You’re offline. Check your connection and try again.");
     }
@@ -48,12 +63,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!response.ok) {
     // the /api proxy's own error page: the backend didn't answer
     if (!data && response.status >= 500) {
+      reportOffline();
       throw new ApiError(response.status, "unreachable", "Can’t reach kolo right now. Try again in a moment.");
     }
+    reportOnline();
     const error = data?.error ?? {};
     const retry = Number(response.headers.get("Retry-After")) || undefined;
     throw new ApiError(response.status, error.code ?? "http_error", error.message ?? "Server error", retry);
   }
+  reportOnline();
   return (data ?? {}) as T;
 }
 
@@ -85,15 +103,16 @@ export const api = {
 
 export const telegramApi = {
   me: () => request<Me>("/me"),
-  startLink: () => request<LinkStart>("/me/telegram/link", { method: "POST" }),
-  linkStatus: (token: string) => request<LinkStatus>(`/me/telegram/link/${encodeURIComponent(token)}`),
-  unlink: () => request<void>("/me/telegram", { method: "DELETE" }),
+  startLink: () => request<LinkStart>("/me/telegram/link", { method: "POST" }, { slow: true }),
+  linkStatus: (token: string) => request<LinkStatus>(`/me/telegram/link/${encodeURIComponent(token)}`, undefined, { slow: true }),
+  unlink: () => request<void>("/me/telegram", { method: "DELETE" }, { slow: true }),
   // the caller is whoever this browser linked, the server reads it from the cookie
   invite: (code: string, target: string) =>
-    request<{ status: InviteStatus }>(`/rooms/${encodeURIComponent(code)}/invite`, {
-      method: "POST",
-      body: JSON.stringify({ target }),
-    }),
+    request<{ status: InviteStatus }>(
+      `/rooms/${encodeURIComponent(code)}/invite`,
+      { method: "POST", body: JSON.stringify({ target }) },
+      { slow: true },
+    ),
 };
 
 export function wsUrl(ticket: JoinTicket): string {
