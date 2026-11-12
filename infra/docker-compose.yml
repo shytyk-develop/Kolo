@@ -1,4 +1,4 @@
-# run: docker compose -f infra/docker-compose.yml up --build
+# run: make up (no rebuild) / make rebuild, from the repo root
 services:
   postgres:
     image: postgres:16-alpine
@@ -11,7 +11,10 @@ services:
     ports: ["127.0.0.1:5432:5432"]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U kolo"]
-      interval: 5s
+      # every 0.3s while starting, then every 10s
+      start_period: 30s
+      start_interval: 300ms
+      interval: 10s
       retries: 10
 
   redis:
@@ -20,10 +23,15 @@ services:
     ports: ["127.0.0.1:6379:6379"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
+      start_period: 30s
+      start_interval: 300ms
+      interval: 10s
 
   migrate:
-    build: ../backend
+    # the api's image, built once by the api service
+    image: kolo-api:local
+    pull_policy: never
+    # a no-op in about half a second when the db is already at head
     command: ["alembic", "upgrade", "head"]
     environment: &api-env
       KOLO_ENV: ${KOLO_ENV:-dev}
@@ -41,6 +49,7 @@ services:
       postgres: {condition: service_healthy}
 
   api:
+    image: kolo-api:local
     build: ../backend
     environment: *api-env
     # NOTIFY_URL, NOTIFY_API_KEY, SESSION_SECRET for Telegram invites; `environment` above wins for the rest
@@ -52,7 +61,9 @@ services:
       migrate: {condition: service_completed_successfully}
       redis: {condition: service_healthy}
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=2)"]
+      start_period: 60s
+      start_interval: 500ms
       interval: 10s
     deploy:
       replicas: 1  # 3 replicas: docker-compose.scale.yml
