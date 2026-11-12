@@ -1,6 +1,8 @@
 import { dbg } from "../debug";
 import type { InviteStatus, JoinTicket, LinkStart, LinkStatus, Me, RoomCreated, RoomPublic } from "../types";
 
+// the backend itself, for websockets only (they carry the join token, no cookies).
+// Every http call goes to our own origin's /api, which next.config rewrites to the backend
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 // a server that hangs must not keep a button spinning forever
@@ -24,11 +26,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const timer = setTimeout(() => abort.abort(), TIMEOUT_MS);
   let response: Response;
   try {
-    response = await fetch(`${API_URL}/api/v1${path}`, {
+    response = await fetch(`/api/v1${path}`, {
       ...init,
       signal: abort.signal,
-      // the httpOnly Telegram cookie rides along; js never sees it
-      credentials: "include",
+      // same origin: the httpOnly Telegram cookie rides along; js never sees it
+      credentials: "same-origin",
       headers: { "Content-Type": "application/json", ...init?.headers },
     });
   } catch (err) {
@@ -42,13 +44,17 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   } finally {
     clearTimeout(timer);
   }
-  const data = await response.json().catch(() => ({}));
+  const data = await response.json().catch(() => null);
   if (!response.ok) {
-    const error = data.error ?? {};
+    // the /api proxy's own error page: the backend didn't answer
+    if (!data && response.status >= 500) {
+      throw new ApiError(response.status, "unreachable", "Can’t reach kolo right now. Try again in a moment.");
+    }
+    const error = data?.error ?? {};
     const retry = Number(response.headers.get("Retry-After")) || undefined;
     throw new ApiError(response.status, error.code ?? "http_error", error.message ?? "Server error", retry);
   }
-  return data as T;
+  return (data ?? {}) as T;
 }
 
 export const api = {

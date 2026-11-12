@@ -11,6 +11,11 @@ npm run typecheck
 
 Camera and mic only work on https:// or localhost.
 
+The browser calls only its own origin's `/api/...`; `next.config.ts` rewrites that to `BACKEND_URL`
+(server side, read at build time; falls back to `NEXT_PUBLIC_API_URL`, then `http://localhost:8000`).
+That keeps the Telegram cookie first-party. WebSockets still go straight to `NEXT_PUBLIC_API_URL`
+(they carry the join token, no cookies), so the backend's `KOLO_CORS_ORIGINS` must list this site.
+
 ## End-to-end tests
 
 Two real browsers (fake camera) against the real backend, no mocks:
