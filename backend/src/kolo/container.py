@@ -4,6 +4,7 @@
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
+import httpx
 from redis.asyncio import Redis
 from sqlalchemy import text
 
@@ -18,8 +19,10 @@ from kolo.repositories.cached import CachedRoomRepository
 from kolo.repositories.memory import InMemoryRoomRepository
 from kolo.repositories.sql import SqlRoomRepository
 from kolo.services.events import EventSink, NullEventSink, WebhookSender
+from kolo.services.notify import NotifyClient
 from kolo.services.rooms import RoomService
 from kolo.services.signaling.hub import SignalingHub
+from kolo.services.telegram import TelegramService
 
 Check = Callable[[], Awaitable[None]]
 
@@ -34,6 +37,7 @@ class Container:
     rooms: RoomService
     events: EventSink  # analytics/audit events
     room_limiter: KeyedRateLimiter  # per ip limit for creating rooms
+    telegram: TelegramService | None = None  # None = not configured
     checks: dict[str, Check] = field(default_factory=dict)  # readiness checks
     # cleanup callbacks (close db etc)
     closers: list[Callable[[], Awaitable[None]]] = field(default_factory=list)
@@ -49,6 +53,7 @@ async def build_container(
     *,
     redis_factory: Callable[[], Redis] | None = None,
     events: EventSink | None = None,
+    notify_transport: httpx.AsyncBaseTransport | None = None,
 ) -> Container:
     checks: dict[str, Check] = {}
     closers: list[Callable[[], Awaitable[None]]] = []
@@ -102,6 +107,20 @@ async def build_container(
         else:
             events = NullEventSink()
 
+    rooms = RoomService(repo, settings, presence, events)
+
+    telegram = None
+    if settings.telegram_enabled:
+        assert settings.notify_url and settings.notify_api_key
+        notify = NotifyClient(
+            settings.notify_url,
+            settings.notify_api_key.get_secret_value(),
+            timeout=settings.notify_timeout_seconds,
+            transport=notify_transport,
+        )
+        telegram = TelegramService(notify, rooms, repo)
+        closers.append(telegram.aclose)
+
     # bucket = limit per minute, refills every second
     per_minute = settings.rooms_per_minute_per_ip
 
@@ -111,9 +130,10 @@ async def build_container(
         presence=presence,
         broker=broker,
         hub=SignalingHub(broker),
-        rooms=RoomService(repo, settings, presence, events),
+        rooms=rooms,
         events=events,
         room_limiter=KeyedRateLimiter(capacity=per_minute, rate=per_minute / 60),
+        telegram=telegram,
         checks=checks,
         closers=closers,
     )

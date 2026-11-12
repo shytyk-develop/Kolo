@@ -22,3 +22,12 @@ class RoomRow(Base):
     lobby_enabled: Mapped[bool] = mapped_column(default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+# Telegram invites sent for a room, so they can be marked ended later
+class RoomInviteRow(Base):
+    __tablename__ = "room_invites"
+
+    invite_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    room_code: Mapped[str] = mapped_column(String(12), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

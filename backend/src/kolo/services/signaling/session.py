@@ -26,6 +26,7 @@ from kolo.services import metrics
 from kolo.services.events import EventSink
 from kolo.services.sfu import sfu_token, uses_sfu
 from kolo.services.signaling.hub import SignalingHub
+from kolo.services.telegram import TelegramService
 
 # app close codes (4000-4999)
 CLOSE_UNAUTHORIZED = 4401
@@ -63,6 +64,7 @@ class PeerSession:
         presence: PresenceStore, 
         settings: Settings,
         events: EventSink,
+        telegram: TelegramService | None = None,
     ) -> None:
         self.ws = ws
         self.room = room
@@ -75,6 +77,7 @@ class PeerSession:
         self._presence = presence
         self._settings = settings
         self._events = events
+        self._telegram = telegram
         
         self._outbox: asyncio.Queue[dict] = asyncio.Queue(maxsize=256)
         self._bucket = TokenBucket(settings.ws_burst, settings.ws_messages_per_second)
@@ -344,6 +347,11 @@ class PeerSession:
                 {"type": "peer-left", "peer_id": self.peer.id},
                 exclude=self.peer.id
             )
+            # left while others stayed: that call is over
+            if self._telegram is not None:
+                others = await self._presence.members(self.room_code)
+                if others:
+                    self._telegram.call_ended(self.room_code, self.peer, others)
         except Exception:
             log.warning("peer_leave_failed", room=self.room_code, peer=self.peer.id)
 

@@ -123,7 +123,12 @@ class RoomService:
         return await self._presence.count(room.code)
 
     async def join(
-        self, raw_code: str, display_name: str, host_secret: str | None, client_id: str | None = None
+        self,
+        raw_code: str,
+        display_name: str,
+        host_secret: str | None,
+        client_id: str | None = None,
+        handle: str | None = None,
     ) -> JoinTicket:
         room = await self.get_room(raw_code)
 
@@ -146,6 +151,7 @@ class RoomService:
             name=display_name, 
             role=role,
             client_id=client_id,
+            handle=handle,
         )
         
         return JoinTicket(

@@ -6,7 +6,7 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from kolo.db.tables import RoomRow
+from kolo.db.tables import RoomInviteRow, RoomRow
 from kolo.domain.errors import RoomCodeTaken
 from kolo.domain.models import Room
 
@@ -64,3 +64,22 @@ class SqlRoomRepository:
             result = await session.execute(stmt)
             await session.commit()
             return result.rowcount
+    async def add_invite(self, code: str, invite_id: str) -> None:
+        async with self._sessions() as session:
+            session.add(RoomInviteRow(invite_id=invite_id, room_code=code, created_at=datetime.now(UTC)))
+            await session.commit()
+
+    async def take_invites(self, code: str) -> list[str]:
+        return await self._take(RoomInviteRow.room_code == code)
+
+    async def take_expired_invites(self, now: datetime) -> list[str]:
+        live = select(RoomRow.code).where(RoomRow.expires_at > now)
+        return await self._take(RoomInviteRow.room_code.not_in(live))
+
+    async def _take(self, where) -> list[str]:
+        async with self._sessions() as session:
+            ids = list(await session.scalars(select(RoomInviteRow.invite_id).where(where)))
+            if ids:
+                await session.execute(delete(RoomInviteRow).where(RoomInviteRow.invite_id.in_(ids)))
+                await session.commit()
+            return ids

@@ -58,3 +58,12 @@ class CachedRoomRepository:
         # stale cache dies by ttl, expired rooms are rejected by RoomService anyway
         delete_expired = getattr(self._inner, "delete_expired", None)
         return await delete_expired(older_than) if delete_expired else 0
+
+    async def add_invite(self, code: str, invite_id: str) -> None:
+        await self._inner.add_invite(code, invite_id)
+
+    async def take_invites(self, code: str) -> list[str]:
+        return await self._inner.take_invites(code)
+
+    async def take_expired_invites(self, now: datetime) -> list[str]:
+        return await self._inner.take_expired_invites(now)

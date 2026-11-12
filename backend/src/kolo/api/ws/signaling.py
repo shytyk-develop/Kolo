@@ -70,11 +70,12 @@ async def signaling(
     session = PeerSession(
         websocket, 
         room, 
-        Peer(id=claims.sub, name=claims.name, role=claims.role, client_id=claims.cid),
+        Peer(id=claims.sub, name=claims.name, role=claims.role, client_id=claims.cid, handle=claims.tg),
         hub=c.hub, 
         presence=c.presence, 
         settings=c.settings, 
         events=c.events,
+        telegram=c.telegram,
     )
     
     # runs until disconnect

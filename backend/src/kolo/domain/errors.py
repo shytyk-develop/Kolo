@@ -34,3 +34,22 @@ class Forbidden(KoloError):
 
 class RateLimited(KoloError):
     code, status, message = "rate_limited", 429, "Too many requests, please wait a bit"
+
+class TelegramDisabled(KoloError):
+    code, status, message = "telegram_disabled", 503, "Telegram invites aren't set up on this server"
+
+class TelegramNotLinked(KoloError):
+    code, status, message = "telegram_not_linked", 401, "Connect Telegram first"
+
+class TelegramUnavailable(KoloError):
+    code, status, message = "telegram_unavailable", 503, "Telegram isn't answering. Try again in a moment."
+
+class LinkNotFound(KoloError):
+    code, status, message = "link_not_found", 404, "This Telegram link has expired. Start again."
+
+class InviteRateLimited(KoloError):
+    code, status, message = "invite_rate_limited", 429, "Too many invites, try again later"
+
+    def __init__(self, retry_after: int = 60) -> None:
+        super().__init__()
+        self.retry_after = retry_after

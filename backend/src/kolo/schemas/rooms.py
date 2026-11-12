@@ -33,6 +33,15 @@ class UpdateRoomRequest(BaseModel):
     host_secret: str = Field(min_length=1, max_length=128)
     lobby_enabled: bool
 
+class InviteRequest(BaseModel):
+    # a Kolo ID; the caller comes from the cookie, never from here
+    target: str = Field(min_length=1, max_length=40)
+
+
+class InviteResponse(BaseModel):
+    status: Literal["sent", "needs_acceptance", "undeliverable"]
+
+
 class JoinRequest(BaseModel):
     display_name: str = Field(min_length=1, max_length=40)
     host_secret: str | None = Field(default=None, max_length=128)

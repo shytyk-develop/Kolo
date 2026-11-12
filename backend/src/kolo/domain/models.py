@@ -35,13 +35,18 @@ class Peer:
     role: Role
     # the person's browser, stable across calls (id is per call): lets clients recognize each other
     client_id: str | None = None
+    # Kolo ID from the server-checked Telegram cookie, never from the client
+    handle: str | None = None
 
     def to_dict(self) -> dict:
-        data = asdict(self)
-        if self.client_id is None:
-            del data["client_id"]
-        return data
+        return {k: v for k, v in asdict(self).items() if v is not None or k not in ("client_id", "handle")}
 
     @classmethod
     def from_dict(cls, data: dict) -> "Peer":
-        return cls(id=data["id"], name=data["name"], role=Role(data["role"]), client_id=data.get("client_id"))
+        return cls(
+            id=data["id"],
+            name=data["name"],
+            role=Role(data["role"]),
+            client_id=data.get("client_id"),
+            handle=data.get("handle"),
+        )

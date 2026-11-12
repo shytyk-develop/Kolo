@@ -9,7 +9,11 @@ from kolo.infra.errors import is_dependency_error
 
 
 async def kolo_error_handler(request: Request, exc: KoloError) -> JSONResponse:
-    headers = {"Retry-After": "60"} if isinstance(exc, RateLimited) else None
+    headers = None
+    if isinstance(exc, RateLimited):
+        headers = {"Retry-After": "60"}
+    elif getattr(exc, "retry_after", None):
+        headers = {"Retry-After": str(exc.retry_after)}
     return JSONResponse(
         status_code=exc.status,
         content={"error": {"code": exc.code, "message": exc.message}},

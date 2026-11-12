@@ -1,5 +1,6 @@
 # tests/test_storage.py
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import fakeredis
@@ -54,6 +55,24 @@ async def test_sql_repo_set_lobby(sql_repo):
     assert (await sql_repo.get_by_code("abc-defg-hij")).lobby_enabled is True
     # unknown code -> None, nothing created
     assert await sql_repo.set_lobby("zzz-zzzz-zzz", True) is None
+
+
+@pytest.mark.parametrize("repo", ["memory", "sql"])
+async def test_room_invites_are_taken_once(sql_repo, repo):
+    from kolo.repositories.memory import InMemoryRoomRepository
+
+    r = sql_repo if repo == "sql" else InMemoryRoomRepository()
+    live, gone = make_room(), make_room("old-room-cod")
+    gone = replace(gone, expires_at=gone.created_at - timedelta(seconds=1))
+    await r.add(live)
+    await r.add(gone)
+    await r.add_invite(live.code, "inv-1")
+    await r.add_invite(live.code, "inv-2")
+    await r.add_invite(gone.code, "inv-3")
+
+    assert await r.take_expired_invites(live.created_at) == ["inv-3"]
+    assert sorted(await r.take_invites(live.code)) == ["inv-1", "inv-2"]
+    assert await r.take_invites(live.code) == []
 
 
 async def test_sql_repo_unique_code(sql_repo):

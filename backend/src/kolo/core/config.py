@@ -4,7 +4,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import SecretStr, model_validator
+from pydantic import AliasChoices, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEFAULT_JWT_SECRET = "dev-only-secret-change-me-in-production-0123456789"
@@ -27,7 +27,7 @@ def _is_known(secret: SecretStr | None) -> bool:
 class Settings(BaseSettings):
     # don't print secrets in validation errors
     model_config = SettingsConfigDict(
-        env_file=".env", env_prefix="KOLO_", extra="ignore", hide_input_in_errors=True
+        env_file=".env", env_prefix="KOLO_", extra="ignore", hide_input_in_errors=True, populate_by_name=True
     )
 
     env: Literal["dev", "test", "prod"] = "dev"
@@ -82,6 +82,27 @@ class Settings(BaseSettings):
 
     frontend_url: str = "http://localhost:3000"
 
+    # Telegram invites through the notify service; any of these missing = Telegram is off
+    notify_url: str | None = Field(None, validation_alias=AliasChoices("NOTIFY_URL", "KOLO_NOTIFY_URL"))
+    notify_api_key: SecretStr | None = Field(
+        None, validation_alias=AliasChoices("NOTIFY_API_KEY", "KOLO_NOTIFY_API_KEY")
+    )
+    # signs the kolo_tg cookie
+    session_secret: SecretStr | None = Field(
+        None, validation_alias=AliasChoices("SESSION_SECRET", "KOLO_SESSION_SECRET")
+    )
+    notify_timeout_seconds: float = 5.0
+
+    @property
+    def telegram_enabled(self) -> bool:
+        return bool(
+            self.notify_url
+            and self.notify_api_key
+            and self.notify_api_key.get_secret_value()
+            and self.session_secret
+            and self.session_secret.get_secret_value()
+        )
+
     @model_validator(mode="after")
     def _check_secrets(self) -> "Settings":
         # unsigned webhooks are useless, fail right away in any env
@@ -100,6 +121,9 @@ class Settings(BaseSettings):
             missing.append("KOLO_LIVEKIT_API_SECRET")
         if self.webhook_url and _is_known(self.webhook_secret):
             missing.append("KOLO_WEBHOOK_SECRET")
+
+        if self.telegram_enabled and len(self.session_secret.get_secret_value()) < 32:
+            missing.append("SESSION_SECRET (32+ chars)")
 
         if missing:
             raise ValueError(f"Refusing to start in prod, set real values for: {', '.join(missing)}")

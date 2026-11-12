@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from kolo.api.errors import dependency_error_handler, kolo_error_handler
-from kolo.api.routes import health, rooms
+from kolo.api.routes import health, me, rooms
 from kolo.api.ws import signaling
 from kolo.container import build_container
 from kolo.core.config import Settings, get_settings
@@ -27,6 +27,8 @@ async def room_cleaner(container):
                 deleted = await container.rooms._repo.delete_expired(older_than)
                 if deleted > 0:
                     print(f"Cleaned up {deleted} old rooms")
+            if container.telegram is not None:
+                await container.telegram.end_expired_invites()
         except Exception as e:
             print(f"Room cleanup failed: {e}")
         
@@ -58,7 +60,9 @@ def create_app(settings: Settings | None = None, *, container_factory=None) -> F
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
-        allow_methods=["GET", "POST", "PATCH"],
+        allow_methods=["GET", "POST", "PATCH", "DELETE"],
+        # the kolo_tg cookie rides along
+        allow_credentials=True,
         allow_headers=["Content-Type", "Authorization", "X-API-Key"],
     )
 
@@ -68,6 +72,7 @@ def create_app(settings: Settings | None = None, *, container_factory=None) -> F
     
     app.include_router(health.router)
     app.include_router(rooms.router, prefix="/api/v1/rooms")
+    app.include_router(me.router, prefix="/api/v1/me")
     app.include_router(signaling.router)
     
     return app

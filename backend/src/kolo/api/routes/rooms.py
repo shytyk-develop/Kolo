@@ -1,12 +1,17 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Header, Request
+from fastapi.responses import JSONResponse
 
 from kolo.api.deps import ContainerDep, client_ip
+from kolo.api.errors import kolo_error_handler
+from kolo.api.routes.me import forget, linked_of, telegram_of
 from kolo.core.security import check_api_key
-from kolo.domain.errors import RateLimited, Unauthorized
+from kolo.domain.errors import RateLimited, TelegramNotLinked, Unauthorized
 from kolo.schemas.rooms import (
     CreateRoomRequest,
+    InviteRequest,
+    InviteResponse,
     JoinRequest,
     JoinResponse,
     RoomCreatedResponse,
@@ -73,8 +78,12 @@ async def update_room(code: str, body: UpdateRoomRequest, c: ContainerDep) -> Ro
 
 
 @router.post("/{code}/join", response_model=JoinResponse, response_model_exclude_none=True)
-async def join_room(code: str, body: JoinRequest, c: ContainerDep) -> JoinResponse:
-    ticket = await c.rooms.join(code, body.display_name, body.host_secret, body.client_id)
+async def join_room(code: str, body: JoinRequest, request: Request, c: ContainerDep) -> JoinResponse:
+    # the Kolo ID only ever comes from our own signed cookie
+    linked = linked_of(request, c)
+    ticket = await c.rooms.join(
+        code, body.display_name, body.host_secret, body.client_id, linked.handle if linked else None
+    )
 
     media: dict = {}
     if uses_sfu(c.settings, ticket.room):
@@ -94,3 +103,21 @@ async def join_room(code: str, body: JoinRequest, c: ContainerDep) -> JoinRespon
         ice_servers=ticket.ice_servers,
         **media,
     )
+
+# a Telegram invite to a Kolo ID, from the Kolo ID this browser linked
+@router.post("/{code}/invite", response_model=InviteResponse)
+async def invite(
+    code: str, body: InviteRequest, request: Request, c: ContainerDep
+) -> InviteResponse | JSONResponse:
+    telegram = telegram_of(c)
+    caller = linked_of(request, c)
+    if caller is None:
+        raise TelegramNotLinked()
+    try:
+        status = await telegram.invite(code, caller, body.target)
+    except TelegramNotLinked as exc:
+        # notify forgot them (/stop in the bot): this cookie is useless now
+        response = await kolo_error_handler(request, exc)
+        forget(response, request, c)
+        return response
+    return InviteResponse(status=status)
