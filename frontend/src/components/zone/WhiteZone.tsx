@@ -11,6 +11,7 @@ import { useSplit } from "@/hooks/useSplit";
 import { useViews, type Nav, type View } from "@/hooks/useViews";
 import { errorText, finishLanding, reconnect, refreshTelegram, resumeLink, roomGone, takeLandingLink } from "@/lib/api";
 import { DROPPED_SHOWN_MS, lastCall, type LastCall } from "@/lib/people";
+import { onServerBack, server } from "@/lib/server";
 import { useStore } from "@/lib/store";
 
 import { CallEndedView, ConnectionLostView } from "./CallViews";
@@ -20,6 +21,7 @@ import { HomeView } from "./HomeView";
 import { ensureName, NameSheet } from "./NameSheet";
 import { ContactMenu, NewMeetingView } from "./NewMeetingView";
 import { GuestWaitView, HostLobbyView, InvitingView, RoomReadyView } from "./RoomViews";
+import { ServerPill } from "./ServerPill";
 import { SettingsView } from "./SettingsView";
 import { Tab, type TabPos } from "./Tab";
 import { toast, ToastHost } from "./ui";
@@ -128,6 +130,7 @@ export function WhiteZone() {
   const media = useMedia();
   const split = useSplit();
   const call = useStore(lastCall);
+  const online = useStore(server) === "online";
   const router = useRouter();
   const cam = useCamera();
   const { view } = nav;
@@ -155,16 +158,22 @@ export function WhiteZone() {
     const onStorage = (e: StorageEvent) => e.key === "kolo.tg-link" && void refreshTelegram();
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("storage", onStorage);
+    // back after being offline: what this browser is, and a link that was waiting
+    const offBack = onServerBack(() => {
+      void refreshTelegram();
+      resumeLink();
+    });
     return () => {
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("storage", onStorage);
+      offBack();
     };
   }, []);
 
-  // the dropped call's room may be gone by now: then there's nothing to go back to
+  // the dropped call's room may be gone by now: then there's nothing to go back to (asked again once the server is back)
   const bannerCode = banner?.code;
   useEffect(() => {
-    if (!bannerCode) return;
+    if (!bannerCode || !online) return;
     let alive = true;
     reconnect(bannerCode).catch((err) => {
       if (alive && roomGone(err)) lastCall.set(null);
@@ -172,7 +181,7 @@ export function WhiteZone() {
     return () => {
       alive = false;
     };
-  }, [bannerCode]);
+  }, [bannerCode, online]);
 
   // into the real call: the camera grows from its spot here to the whole screen, the card slides away
   const enterCall = useCallback(
@@ -225,6 +234,7 @@ export function WhiteZone() {
       <ZoneContext value={zone}>
         <main className="wz" data-view={view.name} data-leaving={leaving || undefined} inert={leaving}>
           <CameraStage size={size} scrim={view.name === "lost"} />
+          <ServerPill />
           <div ref={panel} className="panel">
             {/* a screen shown first (epoch) just appears: no morph, no transition into it */}
             <Tab key={`tab:${nav.epoch}`} {...tab} />

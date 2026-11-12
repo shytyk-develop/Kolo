@@ -2271,3 +2271,78 @@
     animation-duration: 1ms;
   }
 }
+
+/* ---------- server status: over the camera, never moves the layout ---------- */
+
+.srvpill__slot {
+  position: absolute;
+  top: calc(env(safe-area-inset-top, 0px) + 14px);
+  left: 0;
+  right: 0;
+  z-index: 4;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+.srvpill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 14px 0 12px;
+  border-radius: 16px;
+  background: rgba(28, 28, 30, 0.86);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+.srvpill i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ff9f0a;
+  animation: srv-breathe 1.6s ease-in-out infinite;
+}
+.srvpill[data-state="back"] i {
+  background: var(--green);
+  animation: none;
+}
+.srvpill__sub {
+  color: rgba(255, 255, 255, 0.6);
+}
+@keyframes srv-breathe {
+  50% {
+    opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .srvpill i {
+    animation: none;
+  }
+}
+/* split layout: over the camera side, not the white card */
+@media (min-width: 900px), (orientation: landscape) and (max-height: 560px) and (min-width: 560px) {
+  .srvpill__slot {
+    right: calc(var(--card-w) + var(--edge) * 2 + env(safe-area-inset-right, 0px));
+  }
+}
+
+/* needs the server, which is offline: resting, not broken */
+.instant[aria-disabled] {
+  opacity: 0.55;
+}
+.instant,
+.codefield button,
+.ibtn,
+.people__one {
+  transition: opacity 200ms ease;
+}
+.codefield button:disabled,
+.ibtn:disabled,
+.people__one:disabled {
+  opacity: 0.4;
+  cursor: default;
+}

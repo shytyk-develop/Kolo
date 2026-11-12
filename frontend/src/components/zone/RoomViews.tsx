@@ -20,6 +20,7 @@ import {
 import { joinRoom } from "@/lib/calls";
 import { useMotionSet } from "@/lib/motion";
 import { displayLink, inviteLink, profile, recents } from "@/lib/people";
+import { OFFLINE_HINT, useOnline } from "@/lib/server";
 import { useStore } from "@/lib/store";
 import { clockLabel } from "@/lib/time";
 
@@ -79,6 +80,7 @@ export function RoomReadyView(props: ViewProps & { view: ViewOf<"ready"> }) {
     .filter((c) => c.handle && tg.handle)
     .slice(0, 4);
   const { busy: inviting, send } = useInvite(nav);
+  const online = useOnline();
   const [lobbyOn, setLobbyOn] = useState(view.lobby);
   const [saving, setSaving] = useState(false);
   const { copied, copy } = useCopy();
@@ -165,6 +167,7 @@ export function RoomReadyView(props: ViewProps & { view: ViewOf<"ready"> }) {
                 <Press
                   key={p.id}
                   className="people__one"
+                  disabled={!online}
                   onClick={() => void send(p.handle!, p.name, { code: view.code, lobby: lobbyOn })}
                   aria-label={`Send to ${p.name} via Telegram`}
                   data-testid="ready-invite"
@@ -189,7 +192,14 @@ export function RoomReadyView(props: ViewProps & { view: ViewOf<"ready"> }) {
       </ViewBody>
       <ViewFoot>
         <Row className="pair pair--share">
-          <Button icon={enterIcon} busy={busy} onClick={() => void enter(view.code, lobbyOn)} data-testid="join-now">
+          <Button
+            icon={enterIcon}
+            busy={busy}
+            disabled={!online}
+            title={online ? undefined : OFFLINE_HINT}
+            onClick={() => void enter(view.code, lobbyOn)}
+            data-testid="join-now"
+          >
             Join now
           </Button>
           <IconButton className="share only-split" label="Share invite link" onClick={() => void shareLink(link)}>
@@ -230,6 +240,7 @@ export function InvitingView(props: ViewProps & { view: ViewOf<"inviting"> }) {
   const name = view.who;
   const { copied, copy } = useCopy();
   const { busy, enter } = useEnterRoom(props);
+  const online = useOnline();
   // it didn't go out: the link is the way now
   const failed = view.status === "undeliverable" || view.status === "limited";
 
@@ -251,7 +262,14 @@ export function InvitingView(props: ViewProps & { view: ViewOf<"inviting"> }) {
     </Button>
   );
   const enterButton = (
-    <Button tone={failed ? "secondary" : "primary"} icon={failed ? undefined : enterIcon} busy={busy} onClick={() => void enter(view.code, view.lobby)}>
+    <Button
+      tone={failed ? "secondary" : "primary"}
+      icon={failed ? undefined : enterIcon}
+      busy={busy}
+      disabled={!online}
+      title={online ? undefined : OFFLINE_HINT}
+      onClick={() => void enter(view.code, view.lobby)}
+    >
       Enter room
     </Button>
   );

@@ -18,6 +18,7 @@ import {
 } from "@/lib/api";
 import { useMotionSet } from "@/lib/motion";
 import { clearRecents, lobby, profile, recents } from "@/lib/people";
+import { onServerBack, OFFLINE_HINT, useOnline } from "@/lib/server";
 import { useStore } from "@/lib/store";
 
 import { Footnote, Press, Switch, toast } from "./ui";
@@ -98,7 +99,8 @@ export function SettingsView({ dir }: ViewProps) {
   );
 }
 
-type CardState = "off" | "idle" | "waiting" | "expired" | "elsewhere" | "linked";
+// offline: the server didn't answer (never "off", which means it answered "not set up")
+type CardState = "offline" | "checking" | "off" | "idle" | "waiting" | "expired" | "elsewhere" | "linked";
 
 // how long the "connected" moment plays
 const SUCCESS_MS = 1800;
@@ -112,10 +114,13 @@ function TelegramCard() {
   // one tap arms it, the second disconnects: it deletes the Kolo ID in the bot
   const [armed, setArmed] = useState(false);
   const [success, setSuccess] = useState(false);
+  const online = useOnline();
 
   useEffect(() => {
     void refreshTelegram();
     resumeLink();
+    // the card was open while the server was down: fresh as soon as it's back
+    return onServerBack(() => void refreshTelegram());
   }, []);
   useEffect(() => {
     if (!armed) return;
@@ -131,7 +136,15 @@ function TelegramCard() {
     return () => clearTimeout(id);
   }, [at]);
 
-  const state: CardState = !tg.ready ? "off" : tg.handle ? "linked" : phase;
+  const state: CardState = !online
+    ? "offline"
+    : tg.ready === null
+      ? "checking"
+      : !tg.ready
+        ? "off"
+        : tg.handle
+          ? "linked"
+          : phase;
 
   const connect = async () => {
     try {
@@ -159,6 +172,9 @@ function TelegramCard() {
   };
 
   const meta = {
+    // the last thing we knew, while we can't ask
+    offline: tg.handle ? `Connected as @${tg.handle}` : "Server is offline",
+    checking: "Checking…",
     off: "Not set up on this server",
     idle: "Not connected",
     waiting: "Waiting for Telegram…",
@@ -190,7 +206,7 @@ function TelegramCard() {
         <span className="tgcard__icon">{icon}</span>
         <p className="tgcard__title">Telegram</p>
         <AnimatePresence mode="popLayout" initial={false}>
-          {state !== "off" && state !== "elsewhere" && (
+          {!["offline", "checking", "off", "elsewhere"].includes(state) && (
             <motion.div
               key={state}
               className="tgcard__actions"
@@ -246,6 +262,10 @@ function TelegramCard() {
             Connect here instead
           </Press>
         </>
+      ) : state === "offline" ? (
+        <p className="tgcard__text" data-testid="tg-offline">
+          {OFFLINE_HINT}
+        </p>
       ) : state === "waiting" ? (
         <p className="tgcard__text">
           Choose your Kolo ID in the bot, then come back.{" "}

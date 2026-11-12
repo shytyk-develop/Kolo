@@ -10,6 +10,7 @@ import { callLog, joinRoom, storedTicket } from "@/lib/calls";
 import { formatDuration } from "@/lib/format";
 import { useMotionSet } from "@/lib/motion";
 import { inviteLink, lastCall, lobby } from "@/lib/people";
+import { OFFLINE_HINT, onServerBack, useOnline } from "@/lib/server";
 import { useStore } from "@/lib/store";
 
 import { Avatar, Button, CopyGlyph, toast, useCopy } from "./ui";
@@ -160,14 +161,20 @@ export function CallEndedView({ nav, dir, view }: ViewProps & { view: ViewOf<"en
   const [open, setOpen] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
   const { copied, copy } = useCopy();
+  const online = useOnline();
 
+  // is the room still there; asked again when the server comes back
   useEffect(() => {
     let alive = true;
-    reconnect(view.code)
-      .then(() => alive && setOpen(true))
-      .catch((err) => alive && setOpen(roomGone(err) ? false : true));
+    const ask = () =>
+      reconnect(view.code)
+        .then(() => alive && setOpen(true))
+        .catch((err) => alive && setOpen(roomGone(err) ? false : true));
+    void ask();
+    const off = onServerBack(() => void ask());
     return () => {
       alive = false;
+      off();
     };
   }, [view.code]);
 
@@ -237,7 +244,8 @@ export function CallEndedView({ nav, dir, view }: ViewProps & { view: ViewOf<"en
           <Button
             icon={<EnterIcon size={20} strokeWidth={2} />}
             busy={busy || open === null}
-            disabled={open === false}
+            disabled={open === false || !online}
+            title={online ? undefined : OFFLINE_HINT}
             onClick={() => void rejoin()}
             data-testid="rejoin"
           >
@@ -246,7 +254,7 @@ export function CallEndedView({ nav, dir, view }: ViewProps & { view: ViewOf<"en
         </Row>
         <Row className="pair">
           {open === false ? (
-            <Button tone="secondary" onClick={() => void fresh()}>
+            <Button tone="secondary" disabled={!online} onClick={() => void fresh()}>
               New meeting
             </Button>
           ) : (

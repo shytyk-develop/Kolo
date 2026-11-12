@@ -9,6 +9,7 @@ import { checkCode, errorText, reconnect, roomGone } from "@/lib/api";
 import { joinRoom } from "@/lib/calls";
 import { useMotionSet } from "@/lib/motion";
 import { lastCall, lobby, type LastCall } from "@/lib/people";
+import { OFFLINE_HINT, useOnline } from "@/lib/server";
 import { useStore } from "@/lib/store";
 import { agoLabel } from "@/lib/time";
 
@@ -24,6 +25,7 @@ export function HomeView({ nav, dir, banner }: ViewProps & { banner: LastCall | 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [field, animate] = useAnimate<HTMLDivElement>();
+  const online = useOnline();
 
   const shake = () => {
     if (!m.reduced && field.current) animate(field.current, { x: [0, -8, 7, -5, 4, -2, 0] }, { duration: 0.42, ease: "easeOut" });
@@ -31,7 +33,7 @@ export function HomeView({ nav, dir, banner }: ViewProps & { banner: LastCall | 
 
   async function submit(e: FormEvent) {
     e.preventDefault();
-    if (busy) return;
+    if (busy || !online) return;
     if (!code.trim()) {
       field.current?.querySelector("input")?.focus();
       shake();
@@ -124,7 +126,14 @@ export function HomeView({ nav, dir, banner }: ViewProps & { banner: LastCall | 
                 aria-describedby={error ? "code-error" : undefined}
               />
               <motion.span className="codefield__ring" initial={false} animate={{ opacity: error ? 1 : 0 }} transition={m.sweep} aria-hidden />
-              <button type="submit" aria-label="Join" aria-busy={busy || undefined} data-testid="code-submit">
+              <button
+                type="submit"
+                aria-label={online ? "Join" : OFFLINE_HINT}
+                title={online ? undefined : OFFLINE_HINT}
+                disabled={!online}
+                aria-busy={busy || undefined}
+                data-testid="code-submit"
+              >
                 {busy ? <Spinner size={18} /> : <ArrowIcon size={18} strokeWidth={2} />}
               </button>
             </div>

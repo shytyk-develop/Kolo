@@ -8,6 +8,7 @@ import type { Nav } from "@/hooks/useViews";
 import { createRoom, errorText, HANDLE_RULES, isHandle, normalizeHandle, telegram } from "@/lib/api";
 import { useMotionSet } from "@/lib/motion";
 import { lobby, profile, recents, removeRecent, renameRecent, type Contact } from "@/lib/people";
+import { OFFLINE_HINT, useOnline } from "@/lib/server";
 import { createStore, useStore } from "@/lib/store";
 import { dayLabel, lengthLabel } from "@/lib/time";
 
@@ -61,11 +62,12 @@ export function NewMeetingView({ nav, dir }: ViewProps) {
   const { busy, start } = useStartWith(nav);
   const invite = useInvite(nav);
   const tg = useStore(telegram);
+  const online = useOnline();
   const navRef = useRef(nav);
   navRef.current = nav;
 
   const instant = async () => {
-    if (instantBusy) return;
+    if (instantBusy || !online) return;
     setInstantBusy(true);
     try {
       const name = await zone.ensureName();
@@ -94,13 +96,19 @@ export function NewMeetingView({ nav, dir }: ViewProps) {
       <ViewHead onClose={nav.home} />
       <ViewBody>
         <Row>
-          <Press className="instant" onClick={instant} aria-busy={instantBusy || undefined} data-testid="instant-meeting">
+          <Press
+            className="instant"
+            onClick={instant}
+            aria-busy={instantBusy || undefined}
+            aria-disabled={!online || undefined}
+            data-testid="instant-meeting"
+          >
             <span className="instant__icon">
               <BoltIcon size={22} strokeWidth={2} />
             </span>
             <span className="instant__text">
               <span className="instant__title">Instant meeting</span>
-              <span className="instant__sub">New link · start right now</span>
+              <span className="instant__sub">{online ? "New link · start right now" : "Server is offline"}</span>
             </span>
             <span className="instant__go">{instantBusy ? <Spinner size={18} /> : <ArrowIcon size={22} strokeWidth={2} />}</span>
           </Press>
@@ -119,6 +127,7 @@ export function NewMeetingView({ nav, dir }: ViewProps) {
                   busy={busy === c.id || (Boolean(c.handle) && invite.busy === c.handle)}
                   active={menuFor === c.id}
                   viaTelegram={Boolean(tg.handle && c.handle)}
+                  offline={!online}
                   onStart={onStart}
                   onInvite={onInvite}
                   onMenu={onMenu}
@@ -155,6 +164,7 @@ const RecentRow = memo(function RecentRow({
   busy,
   active,
   viaTelegram,
+  offline,
   onStart,
   onInvite,
   onMenu,
@@ -162,13 +172,15 @@ const RecentRow = memo(function RecentRow({
   contact: Contact;
   busy: boolean;
   active: boolean;
+  // nothing to make a room on: the start buttons rest
+  offline: boolean;
   // they have a Kolo ID and I'm linked: the plane sends a Telegram invite
   viaTelegram: boolean;
   onStart: (c: Contact) => void;
   onInvite: (c: Contact) => void;
   onMenu: (id: string, button: HTMLElement) => void;
 }) {
-  const go = viaTelegram ? onInvite : onStart;
+  const go = (c: Contact) => !offline && (viaTelegram ? onInvite : onStart)(c);
   const m = useMotionSet();
   const editing = useStore(renaming) === c.id;
   return (
@@ -201,7 +213,8 @@ const RecentRow = memo(function RecentRow({
       {viaTelegram ? (
         <IconButton
           className="recent__act"
-          label={`Invite ${c.name} on Telegram`}
+          label={offline ? OFFLINE_HINT : `Invite ${c.name} on Telegram`}
+          disabled={offline}
           onClick={() => onInvite(c)}
           aria-busy={busy || undefined}
           data-testid="recent-invite"
@@ -211,7 +224,8 @@ const RecentRow = memo(function RecentRow({
       ) : (
         <IconButton
           className="recent__act"
-          label={`Copy a new link for ${c.name}`}
+          label={offline ? OFFLINE_HINT : `Copy a new link for ${c.name}`}
+          disabled={offline}
           onClick={() => onStart(c)}
           aria-busy={busy || undefined}
           data-testid="recent-start"
@@ -266,6 +280,7 @@ export function ContactMenu({ nav, split }: { nav: Nav; split: boolean }) {
   const { busy, start } = useStartWith(nav);
   const invite = useInvite(nav);
   const tg = useStore(telegram);
+  const online = useOnline();
 
   // the menu is a history entry: closing it is Back
   const close = useCallback(() => nav.back(), [nav]);
@@ -286,8 +301,10 @@ export function ContactMenu({ nav, split }: { nav: Nav; split: boolean }) {
       key: "invite",
       label: "Invite via Telegram",
       icon: invite.busy ? <Spinner size={18} /> : <SendIcon size={20} strokeWidth={1.8} />,
-      disabled: !tg.handle || !contact.handle,
-      hint: !tg.ready
+      disabled: !online || !tg.handle || !contact.handle,
+      hint: !online
+        ? "Server is offline"
+        : !tg.ready
         ? "Not set up on this server"
         : !tg.handle
           ? "Connect Telegram in Settings"
@@ -300,6 +317,8 @@ export function ContactMenu({ nav, split }: { nav: Nav; split: boolean }) {
     {
       key: "copy",
       label: "Copy invite link",
+      disabled: !online,
+      hint: online ? undefined : "Server is offline",
       icon: busy ? <Spinner size={18} /> : <LinkIcon size={20} strokeWidth={1.8} />,
       run: () => void start(contact, true),
     },
@@ -448,10 +467,12 @@ function KoloIdInvite({ nav }: { nav: Nav }) {
   const tg = useStore(telegram);
   const list = useStore(recents);
   const { busy, send } = useInvite(nav);
+  const online = useOnline();
   const [value, setValue] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [field, animate] = useAnimate<HTMLDivElement>();
 
+  // unknown yet, or not set up: nothing to show
   if (!tg.ready) return null;
   if (!tg.handle) {
     return (
@@ -471,7 +492,7 @@ function KoloIdInvite({ nav }: { nav: Nav }) {
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    if (busy) return;
+    if (busy || !online) return;
     const handle = normalizeHandle(value);
     if (!isHandle(handle)) return fail(`A Kolo ID is ${HANDLE_RULES}`);
     if (handle === tg.handle) return fail("That’s your own Kolo ID");
@@ -507,7 +528,14 @@ function KoloIdInvite({ nav }: { nav: Nav }) {
             aria-describedby={error ? "kolo-id-error" : undefined}
           />
           <motion.span className="codefield__ring" initial={false} animate={{ opacity: error ? 1 : 0 }} transition={m.sweep} aria-hidden />
-          <button type="submit" aria-label="Send invite" aria-busy={busy ? true : undefined} data-testid="id-invite-send">
+          <button
+            type="submit"
+            aria-label={online ? "Send invite" : OFFLINE_HINT}
+            title={online ? undefined : OFFLINE_HINT}
+            disabled={!online}
+            aria-busy={busy ? true : undefined}
+            data-testid="id-invite-send"
+          >
             {busy ? <Spinner size={16} /> : <SendIcon size={17} strokeWidth={2} />}
           </button>
         </div>
