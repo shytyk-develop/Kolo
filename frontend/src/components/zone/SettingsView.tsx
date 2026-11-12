@@ -19,6 +19,7 @@ import {
   startLink,
   telegram,
   waitingDeepLink,
+  webLink,
 } from "@/lib/api";
 import { useMotionSet } from "@/lib/motion";
 import { clearRecents, lobby, profile, recents } from "@/lib/people";
@@ -103,10 +104,9 @@ export function SettingsView({ dir }: ViewProps) {
   );
 }
 
-// offline: the server didn't answer (never "off", which means it answered "not set up")
+// offline = no answer; off = it answered "not set up"
 type CardState = "offline" | "checking" | "off" | "idle" | "waiting" | "expired" | "elsewhere" | "linked";
 
-// how long the "connected" moment plays
 const SUCCESS_MS = 1800;
 
 function TelegramCard() {
@@ -115,7 +115,7 @@ function TelegramCard() {
   const phase = useStore(linking);
   const at = useStore(linkedAt);
   const [busy, setBusy] = useState(false);
-  // one tap arms it, the second disconnects: it deletes the Kolo ID in the bot
+  // two taps: disconnect deletes the Kolo ID in the bot
   const [armed, setArmed] = useState(false);
   const [success, setSuccess] = useState(false);
   const online = useOnline();
@@ -125,7 +125,7 @@ function TelegramCard() {
   useEffect(() => {
     void refreshTelegram();
     resumeLink();
-    // the card was open while the server was down: fresh as soon as it's back
+    // fresh again once the server is back
     return onServerBack(() => void refreshTelegram());
   }, []);
   useEffect(() => {
@@ -133,7 +133,7 @@ function TelegramCard() {
     const id = setTimeout(() => setArmed(false), 3000);
     return () => clearTimeout(id);
   }, [armed]);
-  // just linked (here, or this view opened from Back to Kolo): a short green moment
+  // just linked: a short green moment
   useEffect(() => {
     const left = at + SUCCESS_MS - Date.now();
     if (left <= 0) return;
@@ -141,7 +141,7 @@ function TelegramCard() {
     const id = setTimeout(() => setSuccess(false), left);
     return () => clearTimeout(id);
   }, [at]);
-  // Connect needs its link before the tap (see prepareLink); a new one before this one runs out
+  // Connect needs its link before the tap (see prepareLink)
   const wantLink = online && tg.ready === true && !tg.handle && phase !== "waiting";
   useEffect(() => {
     // the hidden warm-up copy of this screen doesn't ask
@@ -190,7 +190,7 @@ function TelegramCard() {
   };
 
   const meta = {
-    // the last thing we knew, while we can't ask
+    // last known, while offline
     offline: tg.handle ? `Connected as @${tg.handle}` : "Server is offline",
     checking: "Checking…",
     off: "Not set up on this server",
@@ -296,6 +296,11 @@ function TelegramCard() {
               >
                 Open Telegram
               </a>
+              {" · "}
+              {/* no app on this computer */}
+              <a className="tgcard__again" href={webLink(waitingDeepLink())} target="_blank" rel="noreferrer" data-testid="tg-web">
+                Telegram Web
+              </a>
             </>
           )}
         </p>
@@ -306,10 +311,7 @@ function TelegramCard() {
   );
 }
 
-/**
- * Connect as a real link to the bot, so one tap opens Telegram (the app, on phones).
- * Until the link is ready (or if getting it failed) it's a button that gets one on tap.
- */
+/** A real link to the bot once it's ready; until then a button that fetches one. */
 function ConnectLink({
   className,
   label,

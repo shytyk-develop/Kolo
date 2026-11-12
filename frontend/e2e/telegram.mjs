@@ -1,6 +1,4 @@
-// Telegram invites with notify mocked: link in Settings, invite by Kolo ID (every 03 state),
-// a real call between two linked people, then the plane in Recent.
-// Needs the backend started against the mock (see README), frontend on :3000.
+// Telegram flows with notify mocked; needs the backend pointed at the mock (see README).
 import { hangUp, joinAs, launch, person, shotOnFail, waitConnected, WEB } from "./helpers.mjs";
 import { MOCK_NOTIFY_PORT, startMockNotify } from "./mock-notify.mjs";
 
@@ -9,7 +7,7 @@ const { server } = await startMockNotify();
 const control = (path, body) =>
   fetch(`${MOCK}${path}`, { method: body ? "POST" : "GET", body: body && JSON.stringify(body) }).then((r) => r.json());
 
-// a fresh entry each time: going to the same url again would restore the open screen
+// a new url each time: the same one would restore the open screen
 const fresh = (page) => page.goto(`${WEB}/?t=${Date.now()}`);
 
 async function openSettings(page) {
@@ -18,9 +16,9 @@ async function openSettings(page) {
   return page.getByTestId("tg-status");
 }
 
-// Connect opens the bot in a popup; this tab stays where it is
+// Connect opens the bot in a popup
 async function tapConnect(page) {
-  // a real link to the bot, ready before the tap (phones open the Telegram app only for those)
+  // Connect is a real link, ready before the tap
   await page.locator('a[data-testid="tg-connect"][href*="start=link_"]').waitFor({ timeout: 8000 });
   const popup = page.waitForEvent("popup");
   await page.getByTestId("tg-connect").click();
@@ -66,7 +64,7 @@ async function link(page, handle, name, { reload = false, via = "poll" } = {}) {
     await page.bringToFront();
   }
   await status.filter({ hasText: `Connected as @${handle}` }).waitFor({ timeout: 8000 });
-  // the tab that pressed Connect closes the Telegram one it opened (after a reload it no longer can)
+  // the Connect tab closes the popup (not after a reload)
   if (!reload && !(await closed(tg))) throw new Error("the Telegram popup should close once linked");
   if (reload) await tg.close().catch(() => {});
   const cookie = checkCookie(await page.context().cookies());
@@ -119,7 +117,7 @@ try {
 
   const yansToken = await link(yan, "yan_k", "Yan", { via: "back" });
 
-  // Back to Kolo opened in another browser: no kolo_tg_link cookie there, nothing to finish
+  // Back to Kolo in another browser: nothing to finish there
   await alex.goto(`${WEB}/?link=${yansToken}#settings`);
   await alex.getByTestId("tg-elsewhere").filter({ hasText: "Open Kolo in the browser where you pressed Connect" }).waitFor();
   await alex.getByTestId("tg-connect-here").filter({ hasText: "Connect here instead" }).waitFor();

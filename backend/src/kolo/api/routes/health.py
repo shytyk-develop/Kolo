@@ -7,11 +7,10 @@ from kolo.api.deps import ContainerDep
 
 router = APIRouter(tags=["health"])
 
-# never cached: a stale "ok" (or a stale error) is worse than none
 NO_STORE = {"Cache-Control": "no-store"}
 
 
-# /api/v1/health: the same, reachable through the frontend's /api proxy (its offline probe)
+# also under /api: the frontend's offline probe goes through its proxy
 @router.get("/health")
 @router.get("/api/v1/health")
 async def liveness() -> JSONResponse:

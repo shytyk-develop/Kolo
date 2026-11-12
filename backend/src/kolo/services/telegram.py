@@ -1,4 +1,4 @@
-"""Telegram invites: linking a browser to a Kolo ID, inviting by ID, telling notify how calls went."""
+"""Linking browsers to Kolo IDs, invites by ID, telling notify how calls went."""
 
 import asyncio
 from collections.abc import Coroutine
@@ -58,7 +58,7 @@ class TelegramService:
         return result["status"]
 
     def call_ended(self, room_code: str, left: Peer, others: list[Peer]) -> None:
-        """Someone left while others stayed: their call is over. Never blocks the leave."""
+        # someone left while others stayed: that call is over (never blocks the leave)
         for other in others:
             if left.handle and other.handle and other.handle != left.handle:
                 self._spawn(self._notify.calls_completed(left.handle, other.handle))

@@ -40,7 +40,7 @@ def back_url(settings: Settings, token: str) -> str:
 
 
 def _browser_buttons(settings: Settings, lang: str, url: str, label: str) -> list[list[InlineKeyboardButton]]:
-    # the system browser through /open; a plain link under it in case the mini app can't
+    # /open hands it to the system browser; a plain link as the fallback
     return [
         [InlineKeyboardButton(text=plain(lang, label), web_app=WebAppInfo(url=open_url(settings, url, lang)))],
         [InlineKeyboardButton(text=plain(lang, "btn_open"), url=url)],

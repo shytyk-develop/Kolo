@@ -4,7 +4,7 @@ import { createStore, readJson, writeJson } from "./store";
 export interface Person {
   id: string;
   name: string;
-  // their Kolo ID, from the server (their linked Telegram): lets me invite them there
+  // their Kolo ID (from the server): lets me invite them on Telegram
   handle?: string;
 }
 
@@ -138,7 +138,7 @@ export function rememberCall(person: Person, durationMs: number, callId: string)
   const name = person.name.trim();
   if (!name || !profile.get().rememberPeople) return false;
   recents.set((list) => {
-    // the same browser, the same Kolo ID from another browser, or a row from before ids (same name)
+    // same browser, same Kolo ID elsewhere, or an old name-only row
     const old =
       list.find((c) => c.id === person.id) ??
       (person.handle ? list.find((c) => c.handle === person.handle) : undefined) ??
@@ -149,7 +149,7 @@ export function rememberCall(person: Person, durationMs: number, callId: string)
       // their name now, unless I renamed them here
       name: old?.renamed ? old.name : name,
       renamed: old?.renamed,
-      // what the server says now: gone if they unlinked Telegram
+      // gone if they unlinked Telegram
       ...(person.handle ? { handle: person.handle } : {}),
       lastCallAt: Date.now(),
       lastDurationMs: again && old ? Math.max(old.lastDurationMs, durationMs) : durationMs,

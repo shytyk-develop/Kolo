@@ -172,9 +172,8 @@ const RecentRow = memo(function RecentRow({
   contact: Contact;
   busy: boolean;
   active: boolean;
-  // nothing to make a room on: the start buttons rest
   offline: boolean;
-  // they have a Kolo ID and I'm linked: the plane sends a Telegram invite
+  // they have a Kolo ID and I'm linked
   viaTelegram: boolean;
   onStart: (c: Contact) => void;
   onInvite: (c: Contact) => void;
@@ -461,7 +460,6 @@ function MenuCard({ contact, actions }: { contact: Contact; actions: Action[] })
   );
 }
 
-/** Under Instant meeting: a new room and a Telegram invite to whoever has this Kolo ID. */
 function KoloIdInvite({ nav }: { nav: Nav }) {
   const m = useMotionSet();
   const tg = useStore(telegram);

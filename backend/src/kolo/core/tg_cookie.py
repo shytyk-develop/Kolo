@@ -9,7 +9,7 @@ import time
 from dataclasses import dataclass
 
 COOKIE = "kolo_tg"
-# proves the browser polling a link token is the one that asked for it
+# ties a link token to the browser that asked for it
 PENDING_COOKIE = "kolo_tg_link"
 MAX_AGE = 180 * 24 * 3600
 PENDING_MAX_AGE = 10 * 60

@@ -1,7 +1,5 @@
-// The backend goes away and comes back: the site says "offline" (never "not set up"), keeps the
-// last known Telegram link on screen, and recovers by itself, no reload. Also: a backend that
-// hangs behind the /api proxy is given up on after 4 s.
-// Starts its own backend (memory mode) on BACKEND_PORT, the port the frontend proxies /api to.
+// backend down and back: offline pill, cached link, recovery without a reload, 4 s give-up on a hang.
+// Starts its own backend on BACKEND_PORT (where the frontend proxies /api).
 import { spawn } from "node:child_process";
 import { createServer } from "node:net";
 
@@ -40,8 +38,7 @@ const pill = (page) => page.getByTestId("server-status");
 const browser = await launch();
 try {
   const page = await person(browser, "Jan");
-  // every status the Telegram card ever shows, to prove "not set up" never flashes
-  // (kept in sessionStorage: it has to survive the reloads below)
+  // every status the Telegram card shows: "not set up" must never flash
   await page.addInitScript(() => {
     new MutationObserver(() => {
       const t = document.querySelector('[data-testid="tg-status"]')?.textContent;
@@ -51,7 +48,7 @@ try {
     }).observe(document, { subtree: true, childList: true, characterData: true });
   });
 
-  // linked while the server is up (with a name, so actions go straight to the server)
+  // linked while the server is up; a name, so actions skip the name sheet
   await startBackend();
   await page.goto(`${WEB}/?t=${Date.now()}`);
   await page.evaluate(() =>
@@ -61,7 +58,7 @@ try {
   await page.getByRole("button", { name: "Settings" }).click();
   const popup = page.waitForEvent("popup");
   await page.getByTestId("tg-connect").click();
-  // the popup opens blank in the tap and gets the bot's link a moment later: the token exists then
+  // the popup gets the bot's link a moment after it opens
   const tg = await popup;
   await tg.waitForURL(/__bot\?start=link_/);
   const token = new URL(tg.url()).searchParams.get("start").replace(/^link_/, "");
@@ -70,7 +67,7 @@ try {
   await status.filter({ hasText: "Connected as @jan" }).waitFor({ timeout: 8000 });
   console.log("online: Connected as @jan");
 
-  // the server goes away; a fresh load shows the last known state at once, then "offline"
+  // server down: a fresh load shows the cached state, then "offline"
   await stopBackend();
   let t = Date.now();
   await page.goto(`${WEB}/?t=${Date.now()}`);
@@ -87,7 +84,7 @@ try {
   }
   console.log("offline: Instant meeting disabled, 'Server is offline'");
 
-  // back: no reload, the pill says so, the actions come back
+  // server back: no reload needed
   await sleep(6000);
   t = Date.now();
   await startBackend();
@@ -101,11 +98,10 @@ try {
   await status.filter({ hasText: "Connected as @jan" }).waitFor();
   console.log("recovered: pill gone, Settings 'Connected as @jan', no reload");
 
-  // focus brings the check forward: down again, then up and focus
+  // focus checks right away
   await stopBackend();
   await page.getByRole("button", { name: "Back from settings" }).click();
   await page.getByTestId("new-meeting").click();
-  // the first action that needs the server finds out
   t = Date.now();
   await page.getByTestId("instant-meeting").click();
   await pill(page).filter({ hasText: "Server is offline" }).waitFor({ timeout: 6000 });
@@ -117,7 +113,7 @@ try {
   await pill(page).filter({ hasText: "Back online" }).waitFor({ timeout: 3000 });
   console.log(`focus after the backend is up: back online in ${since(t)}`);
 
-  // a backend that accepts and never answers (what a dead upstream can look like behind a proxy)
+  // a backend that accepts and never answers
   await stopBackend();
   const sockets = new Set();
   const hang = createServer((s) => sockets.add(s)).listen(PORT);

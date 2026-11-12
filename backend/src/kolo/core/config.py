@@ -82,11 +82,10 @@ class Settings(BaseSettings):
 
     frontend_url: str = "http://localhost:3000"
 
-    # behind the frontend's /api proxy (Vercel): take the client ip from X-Forwarded-For.
-    # Without it every visitor looks like one of Vercel's few ips to the per-ip limits
+    # behind Vercel's /api proxy: client ip from X-Forwarded-For, or everyone shares Vercel's ips
     trust_proxy: bool = False
 
-    # Telegram invites through the notify service; any of these missing = Telegram is off
+    # Telegram invites via notify: all three, or Telegram is off
     notify_url: str | None = Field(None, validation_alias=AliasChoices("NOTIFY_URL", "KOLO_NOTIFY_URL"))
     notify_api_key: SecretStr | None = Field(
         None, validation_alias=AliasChoices("NOTIFY_API_KEY", "KOLO_NOTIFY_API_KEY")
@@ -95,7 +94,7 @@ class Settings(BaseSettings):
     session_secret: SecretStr | None = Field(
         None, validation_alias=AliasChoices("SESSION_SECRET", "KOLO_SESSION_SECRET")
     )
-    # notify can be cold (a sleeping Vercel function and Neon database): give it time to wake up
+    # a cold notify (Vercel + Neon) takes a few seconds
     notify_timeout_seconds: float = 15.0
 
     @property

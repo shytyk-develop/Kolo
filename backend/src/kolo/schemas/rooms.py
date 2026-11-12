@@ -34,7 +34,7 @@ class UpdateRoomRequest(BaseModel):
     lobby_enabled: bool
 
 class InviteRequest(BaseModel):
-    # a Kolo ID; the caller comes from the cookie, never from here
+    # a Kolo ID; the caller comes from the cookie, never the body
     target: str = Field(min_length=1, max_length=40)
 
 

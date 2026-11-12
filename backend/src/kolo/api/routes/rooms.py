@@ -104,7 +104,6 @@ async def join_room(code: str, body: JoinRequest, request: Request, c: Container
         **media,
     )
 
-# a Telegram invite to a Kolo ID, from the Kolo ID this browser linked
 @router.post("/{code}/invite", response_model=InviteResponse)
 async def invite(
     code: str, body: InviteRequest, request: Request, c: ContainerDep
@@ -116,7 +115,7 @@ async def invite(
     try:
         status = await telegram.invite(code, caller, body.target)
     except TelegramNotLinked as exc:
-        # notify forgot them (/stop in the bot): this cookie is useless now
+        # notify forgot them (/stop in the bot): drop the cookie
         response = await kolo_error_handler(request, exc)
         forget(response, request, c)
         return response

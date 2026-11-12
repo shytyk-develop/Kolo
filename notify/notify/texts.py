@@ -7,7 +7,7 @@ import html
 LANGS = ("en", "ru", "uk", "de")
 FALLBACK = "en"
 
-# calm and short: one emoji at most, only where it means something; names in <b>, codes and IDs in <code>
+# house style: one emoji at most; names in <b>, codes and IDs in <code>
 TEXTS: dict[str, dict[str, str]] = {
     "en": {
         "greet": "<b>Kolo</b> — video calls for two.",

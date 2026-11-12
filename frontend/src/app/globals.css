@@ -2174,7 +2174,7 @@ html[data-call-island="right"] .island--float {
   }
 }
 
-/* call page inside Telegram's in-app browser: the camera wants the real one */
+/* call page in Telegram's in-app browser */
 .inapp {
   position: fixed;
   /* under the room's top island */

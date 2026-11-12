@@ -31,7 +31,7 @@ services:
     # the api's image, built once by the api service
     image: kolo-api:local
     pull_policy: never
-    # a no-op in about half a second when the db is already at head
+    # ~0.5s no-op when already at head
     command: ["alembic", "upgrade", "head"]
     environment: &api-env
       KOLO_ENV: ${KOLO_ENV:-dev}
@@ -52,7 +52,7 @@ services:
     image: kolo-api:local
     build: ../backend
     environment: *api-env
-    # NOTIFY_URL, NOTIFY_API_KEY, SESSION_SECRET for Telegram invites; `environment` above wins for the rest
+    # NOTIFY_URL, NOTIFY_API_KEY, SESSION_SECRET; `environment` above wins
     env_file:
       - path: ../backend/.env
         required: false

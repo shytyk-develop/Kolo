@@ -98,7 +98,6 @@ def as_linked(client: TestClient, handle: str | None) -> None:
         client.cookies.set(COOKIE, cookie_for(handle))
 
 
-# ---------- the cookie ----------
 
 
 def test_cookie_roundtrip_and_tampering():
@@ -118,7 +117,6 @@ def test_cookie_with_a_bad_handle_is_refused():
     assert read_linked(SESSION_SECRET, sign_linked(SESSION_SECRET, Linked("Bad Handle", "x"))) is None
 
 
-# ---------- off by default ----------
 
 
 def test_telegram_off_without_config(client):
@@ -133,7 +131,6 @@ def test_half_config_is_off(settings):
     assert not settings.model_copy(update={"notify_url": "https://notify.test"}).telegram_enabled
 
 
-# ---------- linking ----------
 
 
 def test_link_flow(tg_client, notify):
@@ -190,7 +187,6 @@ def test_unlink(tg_client, notify):
     assert ("DELETE", "/v1/users/alex718", None) in notify.calls
 
 
-# ---------- inviting ----------
 
 
 def test_invite_needs_a_linked_browser(tg_client, notify):
@@ -277,7 +273,6 @@ def test_notify_trouble_is_friendly(tg_client, notify, failure):
     }
 
 
-# ---------- in the call ----------
 
 
 def ws_url(ticket: dict) -> str:
@@ -350,7 +345,6 @@ async def test_expired_rooms_end_their_invites(tg_settings, notify):
         old = (await c.rooms.create_room()).room
         await c.repo.add_invite(live.code, "inv-live")
         await c.repo.add_invite(old.code, "inv-old")
-        # the old room ran out
         from dataclasses import replace
 
         c.repo._inner._rooms[old.code] = replace(old, expires_at=datetime.now(UTC) - timedelta(seconds=1))
@@ -361,7 +355,6 @@ async def test_expired_rooms_end_their_invites(tg_settings, notify):
         await c.aclose()
 
 
-# ---------- behind the frontend's /api proxy ----------
 
 
 def test_cookie_is_host_only_and_secure_behind_an_https_proxy(tg_client, notify):

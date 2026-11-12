@@ -1,7 +1,6 @@
 import type { NextConfig } from "next";
 
-// where /api goes, server side only: the browser talks to our own origin, so the
-// Telegram cookie is first-party. Falls back to the public url, then local dev
+// /api goes to the backend server-side: same origin for the browser, first-party cookie
 const BACKEND_URL = (process.env.BACKEND_URL ?? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000").replace(/\/+$/, "");
 
 const nextConfig: NextConfig = {

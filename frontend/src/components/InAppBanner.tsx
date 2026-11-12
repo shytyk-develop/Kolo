@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { CheckIcon, CopyIcon } from "@/components/Icons";
 import { useCopy } from "@/components/zone/ui";
 
-// Telegram's in-app browser: the camera and mic often don't work there
+// camera and mic often fail in Telegram's in-app browser
 function inTelegram(): boolean {
   const w = window as Window & { TelegramWebviewProxy?: unknown };
   return Boolean(w.TelegramWebviewProxy) || /Telegram/i.test(navigator.userAgent);

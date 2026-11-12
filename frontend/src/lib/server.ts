@@ -1,6 +1,6 @@
 import { createStore, useStore } from "./store";
 
-// online until a request says otherwise; offline = the backend didn't answer (network, proxy 5xx, timeout)
+// offline = no answer from the backend (network, proxy 5xx, timeout)
 export type ServerStatus = "online" | "offline";
 
 export const server = createStore<ServerStatus>(() => "online", "online");
@@ -43,7 +43,7 @@ async function probe(): Promise<boolean> {
   }
 }
 
-// a delay that ends early when the tab comes back, gets focus or the network returns
+// ends early on focus, visibility or the network coming back
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => {
     const done = () => {

@@ -1,4 +1,4 @@
-# the linked Kolo ID lives in a signed httpOnly cookie, out of the client's reach
+# the linked Kolo ID: a signed httpOnly cookie, out of the client's reach
 
 from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel
@@ -21,7 +21,6 @@ from kolo.services.telegram import TelegramService
 
 
 def no_store(response: Response) -> None:
-    # per browser, never cached by the proxy in front
     response.headers["Cache-Control"] = "no-store"
 
 
@@ -29,7 +28,7 @@ router = APIRouter(tags=["me"], dependencies=[Depends(no_store)])
 
 
 class MeResponse(BaseModel):
-    # Telegram invites work on this server
+    # Telegram is set up on this server
     telegram: bool
     handle: str | None = None
 
@@ -63,8 +62,7 @@ def linked_of(request: Request, c: Container) -> Linked | None:
 
 
 def _cookie(request: Request, c: Container) -> dict:
-    # no Domain: host-only, so it belongs to whatever host the browser talked to (the frontend, via /api).
-    # Secure unless it's plain http on a dev machine, where Safari would drop it
+    # host-only (no Domain); no Secure on plain-http dev, Safari would drop it
     secure = is_https(request) or c.settings.env == "prod"
     return {"httponly": True, "secure": secure, "samesite": "lax", "path": "/"}
 
@@ -100,7 +98,6 @@ async def link_status(
 ) -> LinkStatusResponse:
     telegram = telegram_of(c)
     if not pending_matches(_secret(c), token, request.cookies.get(PENDING_COOKIE)):
-        # a forwarded link is useless anywhere else
         raise LinkElsewhere()
     status = await telegram.link_status(token)
     if status["status"] != "linked":
@@ -116,7 +113,7 @@ async def unlink(request: Request, c: ContainerDep) -> Response:
     telegram = telegram_of(c)
     linked = linked_of(request, c)
     if linked is not None:
-        # notify first: if it fails the cookie stays and they can try again
+        # notify first: on failure the cookie stays for a retry
         await telegram.unlink(linked.handle)
     response = Response(status_code=204, headers={"Cache-Control": "no-store"})
     forget(response, request, c)

@@ -113,7 +113,7 @@ function screenFromCall(): View | null {
   return { name: c.show, code: c.code };
 }
 
-// the bot's Back to Kolo (?link=<token>#settings): Settings first, the link finishes there
+// Back to Kolo (?link=<token>#settings) opens Settings
 let landingToken: string | null = null;
 
 function firstScreen(): View | null {
@@ -145,7 +145,6 @@ export function WhiteZone() {
     void start();
   }, [start]);
 
-  // what the server says about Telegram: turns the invite parts on
   useEffect(() => {
     const token = landingToken;
     landingToken = null;
@@ -153,12 +152,12 @@ export function WhiteZone() {
     else void refreshTelegram();
     // back from the bot, maybe after the phone reloaded this tab
     resumeLink();
-    // linked in another tab of this browser: show it as soon as this one is looked at
+    // linked in another tab: show it when this one is looked at
     const onVisible = () => document.visibilityState === "visible" && void refreshTelegram();
     const onStorage = (e: StorageEvent) => e.key === "kolo.tg-link" && void refreshTelegram();
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("storage", onStorage);
-    // back after being offline: what this browser is, and a link that was waiting
+    // server back: refresh /me and a waiting link
     const offBack = onServerBack(() => {
       void refreshTelegram();
       resumeLink();
@@ -170,7 +169,7 @@ export function WhiteZone() {
     };
   }, []);
 
-  // the dropped call's room may be gone by now: then there's nothing to go back to (asked again once the server is back)
+  // the dropped call's room may be gone (asked again when the server is back)
   const bannerCode = banner?.code;
   useEffect(() => {
     if (!bannerCode || !online) return;

@@ -1,4 +1,4 @@
-"""HTTP client for the notify service (notify/README.md). Errors come out as friendly domain errors."""
+"""Client for the notify service (notify/README.md); failures become domain errors."""
 
 import httpx
 
@@ -28,7 +28,7 @@ class NotifyClient:
     async def _call(
         self, method: str, path: str, json: dict | None = None, ok: tuple[int, ...] = ()
     ) -> dict:
-        """JSON body of a 2xx (or a status in `ok`); anything else is a domain error."""
+        # 2xx (or a status in `ok`) -> JSON; anything else -> a domain error
         try:
             response = await self._http.request(method, path, json=json)
         except httpx.HTTPError as exc:

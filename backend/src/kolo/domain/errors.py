@@ -47,7 +47,7 @@ class TelegramUnavailable(KoloError):
 class LinkNotFound(KoloError):
     code, status, message = "link_not_found", 404, "This Telegram link has expired. Start again."
 
-# the link was started in another browser (its kolo_tg_link cookie isn't here)
+# started in another browser: no kolo_tg_link cookie here
 class LinkElsewhere(KoloError):
     code, status, message = "link_other_browser", 403, "Open Kolo in the browser where you pressed Connect"
 

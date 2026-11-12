@@ -2,13 +2,12 @@ import { dbg } from "../debug";
 import { reportOffline, reportOnline } from "../server";
 import type { InviteStatus, JoinTicket, LinkStart, LinkStatus, Me, RoomCreated, RoomPublic } from "../types";
 
-// the backend itself, for websockets only (they carry the join token, no cookies).
-// Every http call goes to our own origin's /api, which next.config rewrites to the backend
+// websockets only: http goes to our own /api (next.config rewrites it)
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
-// a backend that's down can hang behind the /api proxy: give up fast and show "offline"
+// a dead backend can hang the proxy: give up fast
 const TIMEOUT_MS = 4000;
-// calls the backend passes on to Telegram (notify): slow there isn't "down" here
+// calls that go on to notify: slow isn't down
 const SLOW_MS = 20_000;
 
 interface Options {
@@ -38,9 +37,8 @@ async function request<T>(path: string, init?: RequestInit, opts: Options = {}):
     response = await fetch(`/api/v1${path}`, {
       ...init,
       signal: abort.signal,
-      // never from a cache: a stale /me or health is worse than none
       cache: "no-store",
-      // same origin: the httpOnly Telegram cookie rides along; js never sees it
+      // the httpOnly Telegram cookie rides along
       credentials: "same-origin",
       headers: { "Content-Type": "application/json", ...init?.headers },
     });
@@ -106,7 +104,7 @@ export const telegramApi = {
   startLink: () => request<LinkStart>("/me/telegram/link", { method: "POST" }, { slow: true }),
   linkStatus: (token: string) => request<LinkStatus>(`/me/telegram/link/${encodeURIComponent(token)}`, undefined, { slow: true }),
   unlink: () => request<void>("/me/telegram", { method: "DELETE" }, { slow: true }),
-  // the caller is whoever this browser linked, the server reads it from the cookie
+  // the caller comes from the cookie
   invite: (code: string, target: string) =>
     request<{ status: InviteStatus }>(
       `/rooms/${encodeURIComponent(code)}/invite`,

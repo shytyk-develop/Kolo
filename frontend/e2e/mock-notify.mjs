@@ -1,6 +1,4 @@
-// a stand-in for the notify service (notify/README.md), for e2e only.
-// The backend talks to it like to the real one; the test drives it through /__ routes.
-//   node e2e/mock-notify.mjs   → listens on :8799 (MOCK_NOTIFY_PORT)
+// fake notify for e2e, driven through /__ routes; alone: node e2e/mock-notify.mjs (:8799)
 import { createServer } from "node:http";
 
 export const MOCK_NOTIFY_PORT = Number(process.env.MOCK_NOTIFY_PORT ?? 8799);
@@ -29,7 +27,7 @@ export function startMockNotify() {
     // test controls
     if (path === "/__bot") return send(200, { bot: "pretend this is Telegram" });
     if (path === "/__link") {
-      // the person picked an ID in the bot (for the token in the link they opened, else the newest)
+      // the person picked an ID in the bot
       links.set(json.token ?? last, { status: "linked", handle: json.handle, display_name: json.name });
       return send(200, { ok: true });
     }

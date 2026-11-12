@@ -987,7 +987,7 @@
   width: 24px;
 }
 
-/* invite by Kolo ID: a compact code field under Instant meeting */
+/* invite by Kolo ID */
 .idinvite {
   margin-top: 14px;
 }
@@ -1383,7 +1383,7 @@
   justify-content: space-between;
   margin-top: 10px;
 }
-/* fewer than four: side by side from the left, not spread to the edges */
+/* fewer than four: from the left */
 .people[data-few] {
   justify-content: flex-start;
   gap: 22px;
@@ -1797,7 +1797,7 @@
   grid-row: 1;
 }
 .tgcard__btn {
-  /* also an <a> (Connect is a real link to the bot) */
+  /* also an <a> */
   text-decoration: none;
   display: flex;
   align-items: center;
@@ -1831,6 +1831,7 @@
   height: 42px;
 }
 .tgcard__again {
+  white-space: nowrap;
   padding: 0;
   border: 0;
   background: none;
@@ -1849,7 +1850,7 @@
   background: var(--green);
   color: #000;
 }
-/* the connected moment: a soft green ring that fades out */
+/* just linked: a green ring fading out */
 .tgcard[data-success] {
   animation: tg-linked 1.8s ease-out both;
 }
@@ -2274,7 +2275,7 @@
   }
 }
 
-/* ---------- server status: over the camera, never moves the layout ---------- */
+/* ---------- server status pill ---------- */
 
 .srvpill__slot {
   position: absolute;
@@ -2325,14 +2326,14 @@
     animation: none;
   }
 }
-/* split layout: over the camera side, not the white card */
+/* split layout: over the camera side */
 @media (min-width: 900px), (orientation: landscape) and (max-height: 560px) and (min-width: 560px) {
   .srvpill__slot {
     right: calc(var(--card-w) + var(--edge) * 2 + env(safe-area-inset-right, 0px));
   }
 }
 
-/* needs the server, which is offline: resting, not broken */
+/* server offline: actions rest */
 .instant[aria-disabled] {
   opacity: 0.55;
 }

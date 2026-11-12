@@ -75,7 +75,6 @@ async function shareLink(link: string) {
 export function RoomReadyView(props: ViewProps & { view: ViewOf<"ready"> }) {
   const { nav, dir, view } = props;
   const tg = useStore(telegram);
-  // only people I can reach there: they have a Kolo ID, and I'm linked
   const people = useStore(recents)
     .filter((c) => c.handle && tg.handle)
     .slice(0, 4);

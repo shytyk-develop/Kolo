@@ -13,7 +13,7 @@ def get_container(request: Request) -> Container:
 ContainerDep = Annotated[Container, Depends(get_container)]
 
 def client_ip(request: Request) -> str:
-    # X-Forwarded-For only when we're told a proxy is in front: anyone can fake it
+    # X-Forwarded-For can be faked: trust it only behind our proxy
     if request.app.state.container.settings.trust_proxy:
         forwarded = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
         if forwarded:
@@ -23,6 +23,6 @@ def client_ip(request: Request) -> str:
 
 
 def is_https(request: Request) -> bool:
-    """The browser's side of it: through the /api proxy our own hop can be plain http."""
+    # via the /api proxy our own hop is plain http
     proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip().lower()
     return request.url.scheme == "https" or proto == "https"

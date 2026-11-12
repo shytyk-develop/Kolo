@@ -119,7 +119,7 @@ async def test_back_to_kolo_finishes_the_link_in_the_system_browser(client, auth
     url = f"https://kolo-black.vercel.app/?link={token}#settings"
     assert (back.text, fallback.text) == ("Back to Kolo", "Open link")
     assert fallback.url == url
-    # the mini app page, signed: it hands exactly this url to the system browser
+    # the signed /open page hands on exactly this url
     query = parse_qs(urlsplit(back.web_app.url).query)
     assert back.web_app.url.startswith("https://notify.example/open?")
     assert query["u"] == [url] and verify(settings.api_key, url, query["s"][0], settings.kolo_url)

@@ -7,10 +7,9 @@ import { useMotionSet } from "@/lib/motion";
 import { server } from "@/lib/server";
 import { useStore } from "@/lib/store";
 
-// how long "Back online" stays before it fades
 const BACK_MS = 1600;
 
-/** Over the camera, out of the layout: "Server is offline" while it's down, a short "Back online" after. */
+/** "Server is offline" over the camera, then a short "Back online". */
 export function ServerPill() {
   const m = useMotionSet();
   const status = useStore(server);

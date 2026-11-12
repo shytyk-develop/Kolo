@@ -10,7 +10,7 @@ export type View =
   | { name: "new"; menu?: string }
   // guest: made for someone from Recent; copied: the link is on the clipboard already
   | { name: "ready"; code: string; lobby: boolean; guest?: string; copied?: boolean }
-  // a Telegram invite went out (or didn't): who = how I know them, status = what notify said
+  // who: the name I know them by; status: what notify said
   | { name: "inviting"; code: string; lobby: boolean; who: string; handle: string; status: InviteState; sentAt: number }
   | { name: "host"; code: string }
   | { name: "guest"; code: string; host: string | null }

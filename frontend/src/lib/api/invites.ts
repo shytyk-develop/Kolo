@@ -12,7 +12,7 @@ export interface TelegramState {
   handle: string | null;
 }
 
-// the last /me, shown right away on load and checked again in the background (nothing secret in it)
+// the last /me: shown at once, checked again in the background
 const ME_KEY = "kolo.me.v1";
 const UNKNOWN: TelegramState = { ready: null, handle: null };
 
@@ -29,25 +29,25 @@ export const HANDLE_RULES = "3–20 characters: a–z, 0–9 and _";
 
 export const POLL_MS = 2500;
 
-/** Ask the server what's set up and who this browser is. On failure the last known answer stays. */
+/** /me; on failure the last known answer stays. */
 export async function refreshTelegram(): Promise<TelegramState> {
   try {
     const me = await telegramApi.me();
     const next = { ready: me.telegram, handle: me.handle ?? null };
-    // same answer: no re-render, no flicker
+    // same answer: no re-render
     telegram.set((t) => (t.ready === next.ready && t.handle === next.handle ? t : next));
   } catch {
-    // offline (the server store knows) or a blip: keep what we had
+    // offline or a blip: keep what we had
   }
   return telegram.get();
 }
 
-// ---------- linking: Settings → the bot in Telegram → back here ----------
+// ---------- linking ----------
 
-// elsewhere: a Back to Kolo link opened in a browser that didn't press Connect
+// elsewhere: Back to Kolo opened in another browser
 export type LinkPhase = "idle" | "waiting" | "expired" | "elsewhere";
 
-// localStorage: a new tab of this browser (Back to Kolo opens one) can finish the link too
+// localStorage: a new tab (Back to Kolo) can finish the link too
 const LINK_KEY = "kolo.tg-link";
 interface Pending {
   token: string;
@@ -63,10 +63,10 @@ function pending(): Pending | null {
 }
 
 export const linking = createStore<LinkPhase>(() => (pending() ? "waiting" : "idle"), "idle");
-// when the link went through here: the card plays its success moment
+// when linking finished, for the card's success moment
 export const linkedAt = createStore<number>(() => 0, 0);
 
-// the Telegram tab we opened: closed again once the link is done
+// the Telegram tab we opened, closed once linked
 let tgWindow: Window | null = null;
 let running = false;
 
@@ -88,7 +88,7 @@ function linked(handle: string) {
   window.focus();
 }
 
-// the next poll: after POLL_MS, or right away when the tab is back in front
+// POLL_MS, or sooner when the tab is back in front
 function nextTick(): Promise<void> {
   return new Promise((resolve) => {
     const done = () => {
@@ -129,7 +129,7 @@ async function poll(): Promise<void> {
           return handle ? linked(handle) : settle("expired");
         }
       }
-      // /me may know already (linked in another tab): show it at once
+      // linked in another tab: /me knows
       const handle = (await refreshTelegram()).handle;
       if (handle) return linked(handle);
       if (linking.get() !== "waiting") return;
@@ -141,9 +141,8 @@ async function poll(): Promise<void> {
   }
 }
 
-// ---------- Connect: a real link to the bot, made before the tap ----------
-// Phones open the Telegram app only for a link the person taps, not for a page script
-// navigates to after a request. So the link is fetched when Settings shows, and Connect is an <a>.
+// ---------- Connect: a real link, ready before the tap ----------
+// phones open the Telegram app only for a link the person taps
 
 interface Prepared {
   token: string;
@@ -152,7 +151,7 @@ interface Prepared {
 }
 
 const PREPARED_KEY = "kolo.tg-prepared";
-// a prepared link this close to expiring isn't offered anymore
+// not offered this close to expiry
 const PREPARED_MARGIN_MS = 60_000;
 
 const usable = (p: Prepared | null) => (p && p.until - Date.now() > PREPARED_MARGIN_MS ? p : null);
@@ -165,7 +164,7 @@ export const prepared = createStore<Prepared | null>(
 
 let preparing: Promise<void> | null = null;
 
-/** A fresh bot link for the Connect button (reused while it's good). Quiet on failure: Connect falls back to startLink. */
+/** A bot link for Connect; on failure Connect falls back to startLink. */
 export function prepareLink(): Promise<void> {
   if (usable(prepared.get())) return Promise.resolve();
   preparing ??= (async () => {
@@ -183,12 +182,41 @@ export function prepareLink(): Promise<void> {
 
 export const usablePrepared = () => usable(prepared.get());
 
-/**
- * The tap on a link to the bot. Desktop: our own window (so it can be closed once linked).
- * Touch screens: the browser follows the <a> itself, which is what opens the Telegram app.
- */
+/** t.me/<bot>?start=x -> tg://resolve?domain=<bot>&start=x, the app itself. */
+export function appLink(deepLink: string): string | null {
+  try {
+    const url = new URL(deepLink);
+    if (url.hostname !== "t.me") return null;
+    const start = url.searchParams.get("start");
+    return `tg://resolve?domain=${encodeURIComponent(url.pathname.slice(1))}${start ? `&start=${encodeURIComponent(start)}` : ""}`;
+  } catch {
+    return null;
+  }
+}
+
+/** The same chat in Telegram Web, for a computer without the app. */
+export function webLink(deepLink: string): string {
+  const app = appLink(deepLink);
+  return app ? `https://web.telegram.org/k/#?tgaddr=${encodeURIComponent(app)}` : deepLink;
+}
+
+// Chromium blocks t.me's own app launch (no tap there), so we launch it
+const chromium = () =>
+  /Chrome\/\d+/.test(navigator.userAgent) ||
+  Boolean((navigator as Navigator & { userAgentData?: { brands?: { brand: string }[] } }).userAgentData?.brands?.some((b) => b.brand === "Chromium"));
+
+/** Phones follow the <a>; desktop Chromium launches tg:// here; others get our t.me window. */
 export function openFromTap(event: { preventDefault: () => void }, url: string): void {
   if (!window.matchMedia("(pointer: fine)").matches) return;
+  const app = appLink(url);
+  if (app && chromium()) {
+    event.preventDefault();
+    // a link click inside this click counts as the person's own
+    const a = document.createElement("a");
+    a.href = app;
+    a.click();
+    return;
+  }
   const tab = window.open(url, "_blank");
   if (!tab) return;
   // the window opened: the <a> mustn't open a second one
@@ -228,7 +256,7 @@ export async function startLink(): Promise<void> {
   writeJson("local", LINK_KEY, { token: link.token, until: Date.now() + LINK_TTL_MS, deepLink: link.deep_link });
   linking.set("waiting");
   if (tab) {
-    // keeps its opener: a window cut off from us can't be closed by us later
+    // keep the opener, or we can't close it later
     tab.location.href = link.deep_link;
     tgWindow = tab;
   }
@@ -245,7 +273,7 @@ export function cancelLink(): void {
   settle("idle");
 }
 
-// ---------- landing on ?link=<token>: the bot's Back to Kolo ----------
+// ---------- ?link=<token>: the bot's Back to Kolo ----------
 
 /** Takes ?link= (and #settings) off the url, so a reload or Back can't replay it. */
 export function takeLandingLink(): { token: string | null; settings: boolean } {
@@ -267,7 +295,7 @@ export async function finishLanding(token: string): Promise<void> {
     const status = await telegramApi.linkStatus(token);
     if (status.status === "linked" && status.handle) return linked(status.handle);
     if (status.status === "expired") return settle("expired");
-    // not picked an ID yet: wait for it like the Connect tab does
+    // no ID picked yet: wait like the Connect tab
     if (!pending()) writeJson("local", LINK_KEY, { token, until: Date.now() + LINK_TTL_MS, deepLink: "" });
     void poll();
   } catch (err) {
