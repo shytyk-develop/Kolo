@@ -38,5 +38,5 @@ KOLO_DATABASE_URL=memory:// KOLO_REDIS_URL= KOLO_CORS_ORIGINS='["http://localhos
   SESSION_SECRET=e2e-session-secret-0123456789abcdef0123 \
   uv run uvicorn kolo.main:create_app --factory --port 8000
 
-npm run e2e:telegram   # link in Settings, invite by Kolo ID (all 03 states), a call, the plane in Recent
+npm run e2e:telegram   # linking (popup, Back to Kolo landing, other browser, expired), invites, a call
 ```

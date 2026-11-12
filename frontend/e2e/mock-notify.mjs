@@ -37,6 +37,7 @@ export function startMockNotify() {
       links.set(last, { status: "expired", handle: null, display_name: null });
       return send(200, { ok: true });
     }
+    if (path === "/__last") return send(200, { token: last });
     if (path === "/__calls") return send(200, calls);
 
     if (req.headers["x-api-key"] !== MOCK_NOTIFY_KEY) return send(401, { detail: "bad key" });

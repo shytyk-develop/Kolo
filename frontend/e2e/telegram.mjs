@@ -18,17 +18,30 @@ async function openSettings(page) {
   return page.getByTestId("tg-status");
 }
 
-// the "bot" opens in a new tab: close it, like coming back from Telegram
+// Connect opens the bot in a popup; this tab stays where it is
 async function tapConnect(page) {
-  const tab = page.context().waitForEvent("page");
+  const popup = page.waitForEvent("popup");
   await page.getByTestId("tg-connect").click();
-  await (await tab).close();
+  const tab = await popup;
+  await tab.waitForURL(/__bot\?start=link_/);
+  return tab;
 }
 
-async function link(page, handle, name, { reload = false } = {}) {
+const closed = (tab) => tab.isClosed() || tab.waitForEvent("close", { timeout: 5000 }).then(() => true, () => false);
+
+function checkCookie(cookies) {
+  const cookie = cookies.find((c) => c.name === "kolo_tg");
+  if (!cookie?.httpOnly || cookie.domain !== new URL(WEB).hostname) {
+    throw new Error(`kolo_tg should be an httpOnly cookie on the frontend's host: ${JSON.stringify(cookie)}`);
+  }
+  return cookie;
+}
+
+/** via "back": the bot's Back to Kolo, a new tab of the same browser with ?link=. */
+async function link(page, handle, name, { reload = false, via = "poll" } = {}) {
   let status = await openSettings(page);
   await status.filter({ hasText: /Not connected|Link expired/ }).waitFor();
-  await tapConnect(page);
+  const tg = await tapConnect(page);
   await status.filter({ hasText: "Waiting for Telegram…" }).waitFor();
   if (reload) {
     // phones often drop the tab while Telegram is in front
@@ -37,12 +50,22 @@ async function link(page, handle, name, { reload = false } = {}) {
     console.log(`${name}: still waiting after a reload`);
   }
   await control("/__link", { handle, name });
-  await status.filter({ hasText: `Linked as @${handle}` }).waitFor({ timeout: 8000 });
-  const cookie = (await page.context().cookies()).find((c) => c.name === "kolo_tg");
-  if (!cookie?.httpOnly || cookie.domain !== new URL(WEB).hostname) {
-    throw new Error(`kolo_tg should be an httpOnly cookie on the frontend's host: ${JSON.stringify(cookie)}`);
+  if (via === "back") {
+    const { token } = await control("/__last");
+    const landing = await page.context().newPage();
+    await landing.goto(`${WEB}/?link=${token}#settings`);
+    await landing.getByTestId("tg-status").filter({ hasText: `Connected as @${handle}` }).waitFor({ timeout: 8000 });
+    if (landing.url().includes("link=") || landing.url().includes("#settings")) throw new Error(`?link= left in ${landing.url()}`);
+    console.log(`${name}: Back to Kolo landed on Settings, "Connected as @${handle}", url cleaned`);
+    await landing.close();
+    await page.bringToFront();
   }
-  console.log(`${name}: linked as @${handle}, kolo_tg on ${cookie.domain}`);
+  await status.filter({ hasText: `Connected as @${handle}` }).waitFor({ timeout: 8000 });
+  // the tab that pressed Connect closes the Telegram one it opened (after a reload it no longer can)
+  if (!reload && !(await closed(tg))) throw new Error("the Telegram popup should close once linked");
+  if (reload) await tg.close().catch(() => {});
+  const cookie = checkCookie(await page.context().cookies());
+  console.log(`${name}: linked as @${handle}, kolo_tg on ${cookie.domain}${reload ? "" : ", popup closed"}`);
   await page.getByRole("button", { name: "Back from settings" }).click();
 }
 
@@ -79,15 +102,36 @@ try {
   await yan.getByTestId("connect-to-invite").waitFor();
   console.log("Not linked: 'Connect Telegram to invite by ID'");
 
-  // a link that runs out
+  // a link that runs out while this tab waits
   const status = await openSettings(yan);
-  await tapConnect(yan);
+  const stale = await tapConnect(yan);
   await control("/__expire");
   await status.filter({ hasText: "Link expired — try again" }).waitFor({ timeout: 8000 });
   await yan.getByTestId("tg-connect").filter({ hasText: "Try again" }).waitFor();
+  await stale.close();
   console.log("Expired link: 'Link expired — try again'");
 
-  await link(yan, "yan_k", "Yan", { reload: true });
+  await link(yan, "yan_k", "Yan", { via: "back" });
+
+  // Back to Kolo opened in another browser: no kolo_tg_link cookie there, nothing to finish
+  const { token: yansToken } = await control("/__last");
+  await alex.goto(`${WEB}/?link=${yansToken}#settings`);
+  await alex.getByTestId("tg-elsewhere").filter({ hasText: "Open Kolo in the browser where you pressed Connect" }).waitFor();
+  await alex.getByTestId("tg-connect-here").filter({ hasText: "Connect here instead" }).waitFor();
+  if ((await alex.context().cookies()).some((c) => c.name === "kolo_tg")) throw new Error("a forwarded link must not link");
+  console.log("Another browser: 'Open Kolo in the browser where you pressed Connect' + 'Connect here instead'");
+
+  // Back to Kolo after the link ran out
+  const zoe = await person(browser, "Zoe");
+  await openSettings(zoe);
+  const zoesTg = await tapConnect(zoe);
+  await control("/__expire");
+  const { token: zoesToken } = await control("/__last");
+  await zoesTg.close();
+  const zoeLanding = await zoe.context().newPage();
+  await zoeLanding.goto(`${WEB}/?link=${zoesToken}#settings`);
+  await zoeLanding.getByTestId("tg-status").filter({ hasText: "Link expired — try again" }).waitFor({ timeout: 8000 });
+  console.log("Expired Back to Kolo: 'Link expired — try again'");
 
   // a bad ID never leaves the browser
   await yan.getByTestId("new-meeting").click();
@@ -110,7 +154,7 @@ try {
   // a real call: Yan invites Alex, enters, Alex comes by the link
   await fresh(alex);
   await alex.evaluate(() => localStorage.setItem("kolo.profile.v1", JSON.stringify({ id: "e2e-alex-browser-01", name: "Alex", rememberPeople: true, lobbyDefault: false })));
-  await link(alex, "alex718", "Alex");
+  await link(alex, "alex718", "Alex", { reload: true });
   await inviteById(yan, "alex718");
   const code = (await yan.locator(".zchip--mono").innerText()).trim();
   await yan.getByRole("button", { name: "Enter room" }).click();
