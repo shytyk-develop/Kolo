@@ -26,6 +26,13 @@ class InMemoryRoomRepository:
             return None
         self._rooms[code] = replace(room, lobby_enabled=enabled)
         return self._rooms[code]
+
+    async def delete_expired(self, older_than: datetime) -> int:
+        gone = [code for code, room in self._rooms.items() if room.expires_at < older_than]
+        for code in gone:
+            del self._rooms[code]
+        return len(gone)
+
     async def add_invite(self, code: str, invite_id: str) -> None:
         self._invites.setdefault(code, []).append(invite_id)
 

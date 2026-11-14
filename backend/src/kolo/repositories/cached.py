@@ -56,8 +56,7 @@ class CachedRoomRepository:
     async def delete_expired(self, older_than: datetime) -> int:
         # room_cleaner calls this on the outer repo, so pass it through.
         # stale cache dies by ttl, expired rooms are rejected by RoomService anyway
-        delete_expired = getattr(self._inner, "delete_expired", None)
-        return await delete_expired(older_than) if delete_expired else 0
+        return await self._inner.delete_expired(older_than)
 
     async def add_invite(self, code: str, invite_id: str) -> None:
         await self._inner.add_invite(code, invite_id)
