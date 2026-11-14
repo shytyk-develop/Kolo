@@ -37,6 +37,7 @@ class Container:
     rooms: RoomService
     events: EventSink  # analytics/audit events
     room_limiter: KeyedRateLimiter  # per ip limit for creating rooms
+    lookup_limiter: KeyedRateLimiter  # per ip limit for looking at / joining rooms
     telegram: TelegramService | None = None  # None = not configured
     checks: dict[str, Check] = field(default_factory=dict)  # readiness checks
     # cleanup callbacks (close db etc)
@@ -123,6 +124,7 @@ async def build_container(
 
     # bucket = limit per minute, refills every second
     per_minute = settings.rooms_per_minute_per_ip
+    lookups = settings.lookups_per_minute_per_ip
 
     return Container(
         settings=settings,
@@ -133,6 +135,7 @@ async def build_container(
         rooms=rooms,
         events=events,
         room_limiter=KeyedRateLimiter(capacity=per_minute, rate=per_minute / 60),
+        lookup_limiter=KeyedRateLimiter(capacity=lookups, rate=lookups / 60),
         telegram=telegram,
         checks=checks,
         closers=closers,

@@ -21,6 +21,7 @@ def settings() -> Settings:
         turn_urls=["turn:turn.example.com:3478"],
         turn_secret="turn-test-secret",
         rooms_per_minute_per_ip=1000,
+        lookups_per_minute_per_ip=1000,
     )
 
 

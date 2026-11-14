@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel
 
-from kolo.api.deps import ContainerDep, is_https
+from kolo.api.deps import ContainerDep, is_https, limit_lookups
 from kolo.container import Container
 from kolo.core.tg_cookie import (
     COOKIE,
@@ -79,7 +79,7 @@ async def me(request: Request, response: Response, c: ContainerDep) -> MeRespons
     return MeResponse(telegram=c.telegram is not None, handle=linked.handle if linked else None)
 
 
-@router.post("/telegram/link", response_model=LinkResponse)
+@router.post("/telegram/link", response_model=LinkResponse, dependencies=[Depends(limit_lookups)])
 async def start_link(request: Request, response: Response, c: ContainerDep) -> LinkResponse:
     link = await telegram_of(c).start_link()
     # only this browser can collect the result

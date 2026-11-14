@@ -47,6 +47,8 @@ class JoinRequest(BaseModel):
     host_secret: str | None = Field(default=None, max_length=128)
     # random per browser, the other side's recents use it to recognize this person
     client_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9-]{8,64}$")
+    # only a fingerprint, the key stays in the browser
+    kid: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{8,32}$")
 
     @field_validator("display_name")
     @classmethod
@@ -65,6 +67,11 @@ class IceServer(BaseModel):
     username: str | None = None
     credential: str | None = None
 
+class IceResponse(BaseModel):
+    ice_servers: list[IceServer]
+    expires_in: int
+
+
 class JoinResponse(BaseModel):
     token: str
     participant_id: str
@@ -72,6 +79,7 @@ class JoinResponse(BaseModel):
     ws_path: str
     expires_in: int
     ice_servers: list[IceServer]  # stun/turn for webrtc
+    ice_expires_in: int = 0  # how long the TURN logins are good for
     media_mode: Literal["p2p", "sfu"] = "p2p"
     sfu_url: str | None = None
     sfu_token: str | None = None

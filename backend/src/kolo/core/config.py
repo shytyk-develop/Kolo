@@ -58,7 +58,8 @@ class Settings(BaseSettings):
     stun_urls: list[str] = ["stun:stun.l.google.com:19302"]
     turn_urls: list[str] = []
     turn_secret: SecretStr | None = None
-    turn_ttl_seconds: int = 60 * 60
+    # short, the client gets new ones when needed (POST /rooms/{code}/ice)
+    turn_ttl_seconds: int = 10 * 60
 
     # sfu (livekit), no livekit_url = every room is p2p
     # devkey/secret = livekit --dev defaults
@@ -69,6 +70,8 @@ class Settings(BaseSettings):
 
     # Rate limits
     rooms_per_minute_per_ip: int = 10
+    # looking at / joining a room: slows down trying codes
+    lookups_per_minute_per_ip: int = 60
     ws_messages_per_second: float = 20.0
     ws_burst: int = 40
     ws_max_message_bytes: int = 64 * 1024
@@ -77,13 +80,12 @@ class Settings(BaseSettings):
     webhook_url: str | None = None
     webhook_secret: SecretStr | None = None
 
-    require_api_key: bool = False
-    rooms_per_minute_per_ip: int = 10
-
     frontend_url: str = "http://localhost:3000"
 
     # behind Vercel's /api proxy: client ip from X-Forwarded-For, or everyone shares Vercel's ips
     trust_proxy: bool = False
+    # our /api proxy sends this as X-Kolo-Proxy, else we don't believe X-Forwarded-For
+    proxy_secret: SecretStr | None = None
 
     # Telegram invites via notify: all three, or Telegram is off
     notify_url: str | None = Field(None, validation_alias=AliasChoices("NOTIFY_URL", "KOLO_NOTIFY_URL"))

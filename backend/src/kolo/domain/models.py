@@ -37,9 +37,12 @@ class Peer:
     client_id: str | None = None
     # Kolo ID from the server-checked Telegram cookie, never from the client
     handle: str | None = None
+    # fingerprint of the room key (not the key itself)
+    kid: str | None = None
 
     def to_dict(self) -> dict:
-        return {k: v for k, v in asdict(self).items() if v is not None or k not in ("client_id", "handle")}
+        optional = ("client_id", "handle", "kid")
+        return {k: v for k, v in asdict(self).items() if v is not None or k not in optional}
 
     @classmethod
     def from_dict(cls, data: dict) -> "Peer":
@@ -49,4 +52,5 @@ class Peer:
             role=Role(data["role"]),
             client_id=data.get("client_id"),
             handle=data.get("handle"),
+            kid=data.get("kid"),
         )

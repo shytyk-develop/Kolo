@@ -24,6 +24,7 @@ class RoomTokenClaims(BaseModel):
     exp: int
     cid: str | None = None  # client id, see Peer.client_id
     tg: str | None = None  # Kolo ID, see Peer.handle
+    kid: str | None = None  # see Peer.kid
 
 def new_secret() -> str:
     """256 bits of randomness, url-safe."""
@@ -48,6 +49,7 @@ def create_room_token(
     role: Role,
     client_id: str | None = None,
     handle: str | None = None,
+    kid: str | None = None,
 ) -> str:
     now = int(time.time())
     claims = RoomTokenClaims(
@@ -57,6 +59,7 @@ def create_room_token(
         role=role,
         cid=client_id,
         tg=handle,
+        kid=kid,
         iat=now, 
         exp=now + settings.jwt_ttl_seconds,
     )

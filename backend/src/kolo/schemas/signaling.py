@@ -37,13 +37,19 @@ class DenyMessage(BaseModel):
     type: Literal["deny"]
     peer_id: PeerId
 
+class SealedMessage(BaseModel):
+    # encrypted with the room key, we can't look inside
+    type: Literal["sealed"]
+    to: PeerId | None = None  # None = to everyone in the room
+    box: str = Field(min_length=24, max_length=48_000, pattern=r"^[A-Za-z0-9_-]+$")
+
 class PingMessage(BaseModel):
     type: Literal["ping"]
 
 # one union, pydantic picks the model by "type"
 ClientMessage = Annotated[
     OfferMessage | AnswerMessage | IceMessage | ChatMessage | MediaStateMessage
-    | AdmitMessage | DenyMessage | PingMessage,
+    | AdmitMessage | DenyMessage | PingMessage | SealedMessage,
     Field(discriminator="type"),
 ]
 

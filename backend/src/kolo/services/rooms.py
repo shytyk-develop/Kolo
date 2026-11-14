@@ -129,6 +129,7 @@ class RoomService:
         host_secret: str | None,
         client_id: str | None = None,
         handle: str | None = None,
+        kid: str | None = None,
     ) -> JoinTicket:
         room = await self.get_room(raw_code)
 
@@ -152,6 +153,7 @@ class RoomService:
             role=role,
             client_id=client_id,
             handle=handle,
+            kid=kid,
         )
         
         return JoinTicket(

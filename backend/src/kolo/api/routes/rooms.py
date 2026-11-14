@@ -1,15 +1,16 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Header, Request
+from fastapi import APIRouter, Depends, Header, Request
 from fastapi.responses import JSONResponse
 
-from kolo.api.deps import ContainerDep, client_ip
+from kolo.api.deps import ContainerDep, client_ip, limit_lookups
 from kolo.api.errors import kolo_error_handler
 from kolo.api.routes.me import forget, linked_of, telegram_of
-from kolo.core.security import check_api_key
+from kolo.core.security import check_api_key, decode_room_token
 from kolo.domain.errors import RateLimited, TelegramNotLinked, Unauthorized
 from kolo.schemas.rooms import (
     CreateRoomRequest,
+    IceResponse,
     InviteRequest,
     InviteResponse,
     JoinRequest,
@@ -19,8 +20,11 @@ from kolo.schemas.rooms import (
     UpdateRoomRequest,
 )
 from kolo.services.sfu import sfu_token, uses_sfu
+from kolo.services.turn import ice_servers_for
 
 router = APIRouter(tags=["rooms"])
+
+Lookup = Depends(limit_lookups)
 
 @router.post("", status_code=201, response_model=RoomCreatedResponse)
 async def create_room(
@@ -52,7 +56,7 @@ async def create_room(
     )
 
 # public info, the page shows it before joining
-@router.get("/{code}", response_model=RoomPublicResponse)
+@router.get("/{code}", response_model=RoomPublicResponse, dependencies=[Lookup])
 async def get_room(code: str, c: ContainerDep) -> RoomPublicResponse:
     room = await c.rooms.get_room(code)
     return RoomPublicResponse(
@@ -65,7 +69,7 @@ async def get_room(code: str, c: ContainerDep) -> RoomPublicResponse:
 
 
 # host only: turn the waiting room on or off after the room is made
-@router.patch("/{code}", response_model=RoomPublicResponse)
+@router.patch("/{code}", response_model=RoomPublicResponse, dependencies=[Lookup])
 async def update_room(code: str, body: UpdateRoomRequest, c: ContainerDep) -> RoomPublicResponse:
     room = await c.rooms.set_lobby(code, body.host_secret, body.lobby_enabled)
     return RoomPublicResponse(
@@ -77,12 +81,14 @@ async def update_room(code: str, body: UpdateRoomRequest, c: ContainerDep) -> Ro
     )
 
 
-@router.post("/{code}/join", response_model=JoinResponse, response_model_exclude_none=True)
+@router.post(
+    "/{code}/join", response_model=JoinResponse, response_model_exclude_none=True, dependencies=[Lookup]
+)
 async def join_room(code: str, body: JoinRequest, request: Request, c: ContainerDep) -> JoinResponse:
     # the Kolo ID only ever comes from our own signed cookie
     linked = linked_of(request, c)
     ticket = await c.rooms.join(
-        code, body.display_name, body.host_secret, body.client_id, linked.handle if linked else None
+        code, body.display_name, body.host_secret, body.client_id, linked.handle if linked else None, body.kid
     )
 
     media: dict = {}
@@ -101,10 +107,28 @@ async def join_room(code: str, body: JoinRequest, request: Request, c: Container
         ws_path=f"/ws/rooms/{ticket.room.code}",
         expires_in=c.settings.jwt_ttl_seconds,
         ice_servers=ticket.ice_servers,
+        ice_expires_in=c.settings.turn_ttl_seconds,
         **media,
     )
 
-@router.post("/{code}/invite", response_model=InviteResponse)
+# fresh STUN/TURN logins mid-call (the old ones expire after minutes)
+@router.post("/{code}/ice", response_model=IceResponse, dependencies=[Lookup])
+async def fresh_ice(
+    code: str, c: ContainerDep, authorization: Annotated[str | None, Header()] = None
+) -> IceResponse:
+    scheme, _, token = (authorization or "").partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        raise Unauthorized()
+    claims = decode_room_token(c.settings, token)
+    room = await c.rooms.get_room(code)
+    if claims.room != room.code:
+        raise Unauthorized("Token was issued for a different room")
+    return IceResponse(
+        ice_servers=ice_servers_for(c.settings, claims.sub), expires_in=c.settings.turn_ttl_seconds
+    )
+
+
+@router.post("/{code}/invite", response_model=InviteResponse, dependencies=[Lookup])
 async def invite(
     code: str, body: InviteRequest, request: Request, c: ContainerDep
 ) -> InviteResponse | JSONResponse:

@@ -20,6 +20,7 @@ from kolo.schemas.signaling import (
     MediaStateMessage,
     OfferMessage,
     PingMessage,
+    SealedMessage,
     client_message_adapter,
 )
 from kolo.services import metrics
@@ -419,6 +420,14 @@ class PeerSession:
                     to=msg.to
                 )
                 
+            case SealedMessage():
+                await self._hub.publish(
+                    self.room_code,
+                    {"type": "sealed", "from": me, "box": msg.box},
+                    to=msg.to,
+                    exclude=None if msg.to else me,
+                )
+
             case ChatMessage():
                 await self._hub.publish(
                     self.room_code, 

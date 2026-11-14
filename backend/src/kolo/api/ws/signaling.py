@@ -70,7 +70,14 @@ async def signaling(
     session = PeerSession(
         websocket, 
         room, 
-        Peer(id=claims.sub, name=claims.name, role=claims.role, client_id=claims.cid, handle=claims.tg),
+        Peer(
+            id=claims.sub,
+            name=claims.name,
+            role=claims.role,
+            client_id=claims.cid,
+            handle=claims.tg,
+            kid=claims.kid,
+        ),
         hub=c.hub, 
         presence=c.presence, 
         settings=c.settings, 
