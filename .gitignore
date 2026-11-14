@@ -1,3 +1,5 @@
 .vscode/
 __pycache__/
 .env
+# private notes and lab results, never in the repo
+docs-private/
