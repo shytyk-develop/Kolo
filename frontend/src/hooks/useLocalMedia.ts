@@ -16,6 +16,16 @@ function problemOf(err: unknown): CameraProblem | null {
   return null;
 }
 
+// where to get the permission back, per browser (short, it shows in the island)
+function allowHint(): string {
+  const ua = typeof navigator === "undefined" ? "" : navigator.userAgent;
+  if (/iPhone|iPad|iPod/.test(ua)) return "Camera and mic are blocked. Tap aA in the address bar → Website Settings → Allow";
+  if (/Android/.test(ua)) return "Camera and mic are blocked. Tap the icon left of the address → Permissions → Allow";
+  if (/Firefox\//.test(ua)) return "Camera and mic are blocked. Click the icon left of the address and remove the block";
+  if (/Safari\//.test(ua) && !/Chrome\/|Chromium\/|Edg\//.test(ua)) return "Camera and mic are blocked. Safari → Settings for This Website → Allow";
+  return "Camera and mic are blocked. Click the icon left of the address → allow camera and microphone";
+}
+
 /** Camera and mic. getUserMedia only works on https:// or localhost. */
 export function useLocalMedia() {
   const [stream, setStream] = useState<MediaStream | null>(null);
@@ -51,7 +61,7 @@ export function useLocalMedia() {
         // no camera, but the mic alone may still work: you can join with audio
         setCameraProblem(problem);
         setVideoOn(false);
-        setError(problem === "blocked" ? "Allow camera and microphone access in your browser settings" : null);
+        setError(problem === "blocked" ? allowHint() : null);
         const audio = await navigator.mediaDevices.getUserMedia({ audio: AUDIO }).catch(() => null);
         if (audio) use(audio);
       } finally {
