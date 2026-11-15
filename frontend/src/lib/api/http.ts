@@ -84,7 +84,8 @@ export const api = {
     request<RoomPublic>(`/rooms/${encodeURIComponent(code)}`, { method: "PATCH", body: JSON.stringify(body) }),
 
   // clientId: who I am across calls, the others' recents use it
-  join: async (code: string, displayName: string, hostSecret?: string | null, clientId?: string) => {
+  // kid: which room key I hold (an id made from it, never the key)
+  join: async (code: string, displayName: string, hostSecret?: string | null, clientId?: string, kid?: string) => {
     dbg("join: request");
     const ticket = await request<JoinTicket>(`/rooms/${encodeURIComponent(code)}/join`, {
       method: "POST",
@@ -92,11 +93,19 @@ export const api = {
         display_name: displayName,
         host_secret: hostSecret ?? undefined,
         client_id: clientId || undefined,
+        kid: kid || undefined,
       }),
     });
     dbg("join: ticket", { ice: ticket.ice_servers.map((s) => s.urls) });
     return ticket;
   },
+
+  // new TURN logins for a call that's already running
+  freshIce: (code: string, token: string) =>
+    request<{ ice_servers: RTCIceServer[]; expires_in: number }>(`/rooms/${encodeURIComponent(code)}/ice`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    }),
 };
 
 export const telegramApi = {

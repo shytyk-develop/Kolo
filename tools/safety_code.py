@@ -5,8 +5,11 @@ Both sides get the same number. If the server swapped a fingerprint (MITM), the 
 import hashlib
 
 
-def safety_code(fingerprint_a: str, fingerprint_b: str) -> str:
+def safety_code(fingerprint_a: str, fingerprint_b: str, safety_tag: str = "") -> str:
+    # safety_tag: comes from the room key (frontend/src/lib/e2ee.ts), empty for rooms without one
     material = "|".join(sorted([fingerprint_a.upper(), fingerprint_b.upper()]))
+    if safety_tag:
+        material += f"|{safety_tag}"
     digest = hashlib.sha256(material.encode()).digest()
     number = int.from_bytes(digest[:8], "big") % 10**10  # 10 digits
     text = f"{number:010d}"

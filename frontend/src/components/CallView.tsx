@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { flushSync } from "react-dom";
 
-import { useCall } from "@/hooks/useCall";
+import { type LinkSecurity, useCall } from "@/hooks/useCall";
 import { callLog } from "@/lib/calls";
 import { personOf, type Person } from "@/lib/people";
 import { usePhone, usePortSide } from "@/hooks/usePhone";
@@ -12,6 +12,7 @@ import { type CallStats, useStats } from "@/hooks/useStats";
 import { dbgOnce } from "@/lib/debug";
 import { avatarStyle, formatDuration, initial } from "@/lib/format";
 import { callQuality } from "@/lib/quality";
+import type { RoomCrypto } from "@/lib/roomKeys";
 import { fingerprintFromSdp, safetyCode } from "@/lib/safety";
 import type { Slot } from "@/lib/slot";
 import type { JoinTicket } from "@/lib/types";
@@ -30,7 +31,7 @@ import {
   type SplitSide,
   splitVertical,
 } from "./FloatingPreview";
-import { CheckIcon, CopyIcon, SplitIcon, UserIcon } from "./Icons";
+import { CheckIcon, CopyIcon, LockIcon, SplitIcon, UserIcon } from "./Icons";
 import type { LocalMedia } from "./MediaProvider";
 import type { IslandItem } from "./MorphIsland";
 import { RemoteAudio, Video } from "./Video";
@@ -44,6 +45,9 @@ interface Props {
   notice: Slot<IslandItem | null>;
   // my video is on screen: the join screen can go
   onShown?: () => void;
+  // the room's key from the link, null if this browser has none
+  crypto: RoomCrypto | null;
+  relayOnly: boolean;
 }
 
 interface Drag {
@@ -80,17 +84,25 @@ function halfRect(side: SplitSide) {
 
 const otherSide = (s: SplitSide): SplitSide => (s === "a" ? "b" : "a");
 
-export function CallView({ ticket, media, code, selfName, notice: noticeSlot, onShown }: Props) {
+export function CallView({ ticket, media, code, selfName, notice: noticeSlot, onShown, crypto, relayOnly }: Props) {
   const router = useRouter();
   // what the home screen says about this call afterwards: who, since when, when they left
   const talk = useRef<{ peer: Person | null; since: number | null; leftAt: number | null }>({ peer: null, since: null, leftAt: null });
   const goHomeRef = useRef<() => void>(() => {});
+  // the call dropped and we're leaving: what the connection does now no longer counts
+  const droppedRef = useRef(false);
   // a real drop: home shows "Connection lost" (or just the way back) and tries to rejoin
-  const call = useCall(ticket, media.stream, (kind) => {
-    const t = talk.current;
-    callLog.dropped(code, t.peer, t.since, kind === "lost");
-    goHomeRef.current();
-  });
+  const call = useCall(
+    ticket,
+    media.stream,
+    (kind) => {
+      const t = talk.current;
+      droppedRef.current = true;
+      callLog.dropped(code, t.peer, t.since, kind === "lost");
+      goHomeRef.current();
+    },
+    { code, crypto, relayOnly },
+  );
   const [codes, setCodes] = useState<Record<string, string>>({});
   const [focusSelf, setFocusSelf] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -129,6 +141,18 @@ export function CallView({ ticket, media, code, selfName, notice: noticeSlot, on
   const stats = useStats(remote ? call.getPeerConnection(remote.peer.id) : null);
   const quality = callQuality(stats.rttMs, stats.packetLossPct);
   const safety = remote ? (codes[remote.peer.id] ?? null) : null;
+  const security: LinkSecurity | null = remote?.security ?? null;
+  // say it briefly when the call isn't fully encrypted; after that it's in the details
+  const [warnedFor, setWarnedFor] = useState<string | null>(null);
+  const plainPeer = remote && remote.state === "connected" && security !== "e2ee" ? remote.peer.id : null;
+  // they have the key, I don't: I can't get in without their ok
+  const needKey = Boolean(remote && !crypto && remote.peer.kid && remote.state !== "connected");
+  const warnPlain = Boolean(plainPeer) && warnedFor !== plainPeer;
+  useEffect(() => {
+    if (!plainPeer) return;
+    const id = setTimeout(() => setWarnedFor(plainPeer), 9000);
+    return () => clearTimeout(id);
+  }, [plainPeer]);
 
   // 0 = the other big, 1 = me big
   const target = hasRemote && !focusSelf ? 0 : 1;
@@ -181,6 +205,8 @@ export function CallView({ ticket, media, code, selfName, notice: noticeSlot, on
   const peerKey = known ? `${known.client_id ?? ""}|${known.handle ?? ""}|${known.name}` : "";
   useEffect(() => {
     const t = talk.current;
+    // else a connection that comes back in the last seconds turns "dropped" into "live" again
+    if (droppedRef.current) return;
     if (connected) {
       t.since ??= Date.now();
       if (known) t.peer = personOf(known);
@@ -200,11 +226,12 @@ export function CallView({ ticket, media, code, selfName, notice: noticeSlot, on
       const mine = fingerprintFromSdp(pc?.localDescription?.sdp);
       const theirs = fingerprintFromSdp(pc?.remoteDescription?.sdp);
       if (mine && theirs) {
-        const value = await safetyCode(mine, theirs);
+        // with a room key it goes into the code: both sides have the same key
+        const value = await safetyCode(mine, theirs, r.security !== "none" ? crypto?.keys.safetyTag : "");
         setCodes((prev) => ({ ...prev, [r.peer.id]: value }));
       }
     });
-  }, [call.remotes, call, codes]);
+  }, [call.remotes, call, codes, crypto]);
 
   // newcomers assume my mic / camera are on: tell them
   const peerIds = Object.keys(call.remotes).sort().join(",");
@@ -605,6 +632,11 @@ export function CallView({ ticket, media, code, selfName, notice: noticeSlot, on
         onHome: hangUp,
         // phones: the top island shows the clock
         timer: phone && connected ? connectedAt : null,
+        plain: warnPlain ? security : null,
+        onDetails: () => setStatsOpen((v) => !v),
+        noKey: security === "blocked" ? remoteName : null,
+        needKey,
+        onAllowPlain: call.allowPlain,
       });
 
   // phone on its side: island goes to the camera's side. It's outside the call, so via <html>
@@ -703,7 +735,7 @@ export function CallView({ ticket, media, code, selfName, notice: noticeSlot, on
         </div>
       ))}
 
-      <StatsPanel show={statsOpen && Boolean(remote)} stats={stats} quality={quality} safety={safety} />
+      <StatsPanel show={statsOpen && Boolean(remote)} stats={stats} quality={quality} safety={safety} security={security} />
 
       <FloatingPreview
         ref={pipHandle}
@@ -767,17 +799,29 @@ export function CallView({ ticket, media, code, selfName, notice: noticeSlot, on
 
 const dash = (v: number | string | null, unit = "") => (v == null ? "—" : `${v}${unit}`);
 
+const SECURITY_TEXT: Record<LinkSecurity, string> = {
+  blocked: "waiting for your ok",
+  e2ee: "end-to-end",
+  signaling: "end-to-end keys, frames by WebRTC only",
+  none: "WebRTC only, compare the code",
+};
+
+// host / srflx / prflx: straight between the two devices; relay: through a TURN server
+const pathText = (type: string | null) => (type == null ? "—" : type === "relay" ? "relay" : `direct (${type})`);
+
 // getStats numbers in a corner, touches go through
 function StatsPanel({
   show,
   stats,
   quality,
   safety,
+  security,
 }: {
   show: boolean;
   stats: CallStats;
   quality: ReturnType<typeof callQuality>;
   safety: string | null;
+  security: LinkSecurity | null;
 }) {
   // mounted until the closing animation ends
   const [mounted, setMounted] = useState(show);
@@ -804,7 +848,13 @@ function StatsPanel({
         <span className="stats__k">Video:</span> {dash(stats.resolution)} @ {dash(stats.fps)} fps
       </div>
       <div>
-        <span className="stats__k">Path:</span> {dash(stats.candidateType)}
+        <span className="stats__k">Path:</span> <span data-testid="path">{pathText(stats.candidateType)}</span>
+      </div>
+      <div>
+        <span className="stats__k">Encryption:</span>{" "}
+        <span data-testid="encryption" data-security={security ?? undefined}>
+          {security ? SECURITY_TEXT[security] : "—"}
+        </span>
       </div>
       <div>
         <span className="stats__k">MOS:</span> {quality.mos == null ? "—" : quality.mos.toFixed(2)} (R{" "}
@@ -830,6 +880,14 @@ interface NoticeInput {
   onHome: () => void;
   // call start when the island shows the clock, else null
   timer: number | null;
+  // the call isn't fully end-to-end encrypted: say so once
+  plain: LinkSecurity | null;
+  onDetails: () => void;
+  // I have the room's key, this person doesn't
+  noKey: string | null;
+  // the other way round
+  needKey: boolean;
+  onAllowPlain: () => void;
 }
 
 // top island text, most important first
@@ -922,6 +980,33 @@ function callNotice(n: NoticeInput): IslandItem | null {
       ),
     };
   }
+  if (n.noKey) {
+    return {
+      key: "no-key",
+      node: (
+        <span className="notice" data-testid="no-key">
+          <LockIcon size={15} className="notice__icon" />
+          <span className="notice__text">
+            <b>{n.noKey}</b> joined without the key
+          </span>
+          <button className="chip chip--light" onClick={n.onAllowPlain} data-testid="allow-plain">
+            Call anyway
+          </button>
+        </span>
+      ),
+    };
+  }
+  if (n.needKey) {
+    return {
+      key: "need-key",
+      node: (
+        <span className="notice" data-testid="need-key">
+          <LockIcon size={15} className="notice__icon" />
+          <span className="notice__text">Encrypted room · open the full invite link, or wait to be let in</span>
+        </span>
+      ),
+    };
+  }
   if (n.remote && !n.remote.connected) {
     return {
       key: "peer-connecting",
@@ -933,15 +1018,28 @@ function callNotice(n: NoticeInput): IslandItem | null {
       ),
     };
   }
-  // phones: call clock
+  if (n.plain) {
+    return {
+      key: `plain:${n.plain}`,
+      node: (
+        <button className="notice notice--btn" onClick={n.onDetails} data-testid="not-e2ee" aria-label="Call details">
+          <LockIcon size={15} className="notice__icon" />
+          <span className="notice__text">
+            {n.plain === "none" ? "No key in the link · compare the safety code" : "This browser can’t encrypt frames"}
+          </span>
+        </button>
+      ),
+    };
+  }
+  // phones: call clock, a tap opens the details (safety code, path)
   if (n.timer) {
     return {
       key: "timer",
       node: (
-        <span className="notice notice--timer" data-testid="call-timer">
+        <button className="notice notice--btn notice--timer" onClick={n.onDetails} data-testid="call-timer" aria-label="Call details">
           <i className="pulse" />
           <Elapsed since={n.timer} />
-        </span>
+        </button>
       ),
     };
   }

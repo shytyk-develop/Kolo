@@ -41,8 +41,14 @@ export function useStats(pc: RTCPeerConnection | null, intervalMs = 2000): CallS
       let received = 0;
       let lost = 0;
 
+      // the pair the media really goes over (several can be "succeeded")
+      let selected: string | null = null;
       report.forEach((s) => {
-        if (s.type === "candidate-pair" && s.nominated && s.state === "succeeded") {
+        if (s.type === "transport" && s.selectedCandidatePairId) selected = s.selectedCandidatePairId;
+      });
+
+      report.forEach((s) => {
+        if (s.type === "candidate-pair" && (selected ? s.id === selected : s.nominated && s.state === "succeeded")) {
           if (s.currentRoundTripTime != null) next.rttMs = Math.round(s.currentRoundTripTime * 1000);
           const local = report.get(s.localCandidateId)?.candidateType;
           const remote = report.get(s.remoteCandidateId)?.candidateType;

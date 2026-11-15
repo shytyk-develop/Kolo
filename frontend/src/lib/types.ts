@@ -10,6 +10,8 @@ export interface Peer {
   client_id?: string;
   // their Kolo ID, set by the server from their linked Telegram
   handle?: string;
+  // which room key they hold (an id, not the key) + "f" / "s", see lib/roomKeys.ts
+  kid?: string;
 }
 
 export interface Me {
@@ -56,6 +58,8 @@ export interface JoinTicket {
   ws_path: string;
   expires_in: number;
   ice_servers: RTCIceServer[];
+  // seconds the TURN logins in ice_servers are good for
+  ice_expires_in?: number;
   // sfu mode (ch12), not used by this client yet
   media_mode?: "p2p" | "sfu";
   sfu_url?: string;
@@ -79,6 +83,8 @@ export type ServerMessage =
   | { type: "peer-left"; peer_id: string }
   | { type: "offer" | "answer"; from: string; sdp: string }
   | { type: "ice"; from: string; candidate: RTCIceCandidateInit | null }
+  // encrypted with the room key, the server only passes it on
+  | { type: "sealed"; from: string; box: string }
   | { type: "chat"; from: string; name: string; text: string; ts: number }
   | { type: "media-state"; from: string; audio: boolean; video: boolean }
   | { type: "lobby"; status: "waiting" }
@@ -92,6 +98,7 @@ export type ServerMessage =
 export type ClientMessage =
   | { type: "offer" | "answer"; to: string; sdp: string }
   | { type: "ice"; to: string; candidate: RTCIceCandidateInit | null }
+  | { type: "sealed"; to?: string; box: string }
   | { type: "chat"; text: string }
   | { type: "media-state"; audio: boolean; video: boolean }
   | { type: "admit" | "deny"; peer_id: string }

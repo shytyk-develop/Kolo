@@ -1,3 +1,4 @@
+import { keyHash, roomKeys } from "./roomKeys";
 import { createStore, readJson, writeJson } from "./store";
 
 // no accounts: a person is their browser's id (sent over signaling) plus the name they gave
@@ -24,6 +25,8 @@ export interface Profile {
   name: string;
   rememberPeople: boolean;
   lobbyDefault: boolean;
+  // calls only through a relay: the other person doesn't see my IP
+  hideIp: boolean;
 }
 
 export interface LastCall {
@@ -96,7 +99,7 @@ export const profile = createStore<Profile>(
   () => {
     const saved = readJson<Partial<Profile>>("local", PROFILE_KEY);
     if (saved?.id) {
-      return { id: saved.id, name: saved.name ?? "", rememberPeople: saved.rememberPeople ?? true, lobbyDefault: saved.lobbyDefault ?? false };
+      return { id: saved.id, name: saved.name ?? "", rememberPeople: saved.rememberPeople ?? true, lobbyDefault: saved.lobbyDefault ?? false, hideIp: saved.hideIp ?? false };
     }
     // first time on v1: carry over the old settings and name, make the id once
     const old = readJson<Partial<Profile>>("local", OLD_PROFILE_KEY);
@@ -104,12 +107,12 @@ export const profile = createStore<Profile>(
     try {
       name = localStorage.getItem(NAME_KEY) ?? "";
     } catch {}
-    const made: Profile = { id: newId(), name, rememberPeople: old?.rememberPeople ?? true, lobbyDefault: old?.lobbyDefault ?? false };
+    const made: Profile = { id: newId(), name, rememberPeople: old?.rememberPeople ?? true, lobbyDefault: old?.lobbyDefault ?? false, hideIp: false };
     writeJson("local", PROFILE_KEY, made);
     writeJson("local", OLD_PROFILE_KEY, null);
     return made;
   },
-  { id: "", name: "", rememberPeople: true, lobbyDefault: false },
+  { id: "", name: "", rememberPeople: true, lobbyDefault: false, hideIp: false },
   (value) => {
     writeJson("local", PROFILE_KEY, value);
     try {
@@ -190,13 +193,14 @@ export function renameRecent(id: string, name: string) {
   recents.set((list) => list.map((c) => (c.id === id ? { ...c, name: clean, renamed: true } : c)));
 }
 
+// the key sits behind the #: browsers never send that part to a server
 export function inviteLink(code: string): string {
   const origin = typeof window === "undefined" ? "" : window.location.origin;
-  return `${origin}/r/${code}`;
+  return `${origin}/r/${code}${keyHash(roomKeys.get(code))}`;
 }
 
-// the link as people see it: no scheme
-export const displayLink = (code: string) => inviteLink(code).replace(/^https?:\/\//, "");
+// the link as people see it: no scheme, no key (the copy button copies the whole thing)
+export const displayLink = (code: string) => inviteLink(code).replace(/^https?:\/\//, "").replace(/#.*$/, "");
 
 // avatars: an initial on a color picked from the name, the same name always gets the same one
 const TONES = [

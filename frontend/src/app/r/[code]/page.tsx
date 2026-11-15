@@ -14,6 +14,7 @@ import { MorphIsland, type IslandItem } from "@/components/MorphIsland";
 import { ApiError, api, hostSecrets } from "@/lib/api";
 import { stashTicket, storedTicket } from "@/lib/calls";
 import { profile } from "@/lib/people";
+import { adoptKeyFromLocation, roomCrypto, type RoomCrypto } from "@/lib/roomKeys";
 import { avatarStyle, initial } from "@/lib/format";
 import { createSlot, type Slot, useSlot } from "@/lib/slot";
 import type { JoinTicket, RoomPublic } from "@/lib/types";
@@ -41,6 +42,15 @@ export default function RoomPage() {
   const [room, setRoom] = useState<RoomPublic | null>(null);
   const [name, setName] = useState("");
   const [ticket, setTicket] = useState<JoinTicket | null>(null);
+  // the room key from the link (#k=...); undefined = still loading, null = none
+  const [secure, setSecure] = useState<RoomCrypto | null | undefined>(undefined);
+  useEffect(() => {
+    let live = true;
+    void roomCrypto(code, adoptKeyFromLocation(code)).then((c) => live && setSecure(c));
+    return () => {
+      live = false;
+    };
+  }, [code]);
   // the home screen got a seat already (or a dropped call comes back): straight into the call
   const [handed, setHanded] = useState(false);
   useLayoutEffect(() => {
@@ -84,7 +94,8 @@ export default function RoomPage() {
     try {
       // my name for next time, the home screen's too
       profile.set((p) => ({ ...p, name: name.trim() }));
-      const joined = await api.join(code, name.trim(), hostSecrets.get(code), profile.get().id);
+      const crypto = secure ?? (await roomCrypto(code, adoptKeyFromLocation(code)));
+      const joined = await api.join(code, name.trim(), hostSecrets.get(code), profile.get().id, crypto?.kid);
       // kept for a reconnect: the same seat, no second admit
       stashTicket(code, joined);
       setTicket(joined);
@@ -95,7 +106,7 @@ export default function RoomPage() {
     }
   }
 
-  const inCall = Boolean(ticket && media.stream);
+  const inCall = Boolean(ticket && media.stream && secure !== undefined);
 
   // the call reports when its picture is up; if it never does, don't keep the join screen forever
   useEffect(() => {
@@ -125,6 +136,8 @@ export default function RoomPage() {
           selfName={name.trim()}
           notice={callNotice}
           onShown={() => setCallShown(true)}
+          crypto={secure ?? null}
+          relayOnly={profile.get().hideIp}
         />
       )}
       {!joinGone && (

@@ -81,6 +81,15 @@ export function SettingsView({ dir }: ViewProps) {
             }}
           />
         </Row>
+        <Row className="zrow">
+          <div>
+            <label htmlFor="hide-ip" className="zrow__title">
+              Hide my IP address
+            </label>
+            <p className="zrow__sub">Calls go through a relay. Needs a relay server</p>
+          </div>
+          <Switch id="hide-ip" label="Hide my IP address" checked={me.hideIp} onChange={(v) => patch({ hideIp: v })} />
+        </Row>
       </ViewBody>
       <ViewFoot>
         <Row>

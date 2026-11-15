@@ -1,5 +1,6 @@
 import { api, hostSecrets } from "./api/http";
 import { lastCall, profile, rememberCall, type Person } from "./people";
+import { roomCrypto, roomKeys } from "./roomKeys";
 import { readJson, writeJson } from "./store";
 import type { JoinTicket } from "./types";
 
@@ -23,7 +24,8 @@ export function dropTicket(code: string) {
 
 /** A seat in the room (host if this browser made it), kept for the call page. */
 export async function joinRoom(code: string, name: string): Promise<JoinTicket> {
-  const ticket = await api.join(code, name, hostSecrets.get(code), profile.get().id);
+  const crypto = await roomCrypto(code, roomKeys.get(code));
+  const ticket = await api.join(code, name, hostSecrets.get(code), profile.get().id, crypto?.kid);
   stashTicket(code, ticket);
   return ticket;
 }
