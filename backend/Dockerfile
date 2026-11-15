@@ -23,5 +23,6 @@ ENV PATH="/app/.venv/bin:$PATH" PYTHONUNBUFFERED=1
 USER kolo
 EXPOSE 8000
 # FORWARDED_ALLOW_IPS is 127.0.0.1 by default, set "*" only behind caddy
+# on stop, wait at most 10s for open sockets, then close
 CMD ["uvicorn", "kolo.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", \
-     "--proxy-headers", "--no-access-log"]
+     "--proxy-headers", "--no-access-log", "--no-server-header", "--timeout-graceful-shutdown", "10"]

@@ -2,6 +2,7 @@
 services:
   postgres:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_USER: kolo
       POSTGRES_PASSWORD: kolo
@@ -19,6 +20,7 @@ services:
 
   redis:
     image: redis:7-alpine
+    restart: unless-stopped
     command: ["redis-server", "--save", "", "--appendonly", "no"]  # cache and presence, no disk
     ports: ["127.0.0.1:6379:6379"]
     healthcheck:
@@ -45,12 +47,17 @@ services:
       KOLO_PUBLIC_URL: ${KOLO_PUBLIC_URL:-https://kolo-black.vercel.app}
       # join_url uses frontend_url
       KOLO_FRONTEND_URL: ${KOLO_PUBLIC_URL:-https://kolo-black.vercel.app}
+      # same as KOLO_PROXY_SECRET in the frontend (Vercel); empty = off
+      KOLO_PROXY_SECRET: ${KOLO_PROXY_SECRET:-}
     depends_on:
       postgres: {condition: service_healthy}
 
   api:
     image: kolo-api:local
     build: ../backend
+    restart: unless-stopped
+    # uvicorn waits 10s for open sockets, only then docker may kill it
+    stop_grace_period: 15s
     environment: *api-env
     # NOTIFY_URL, NOTIFY_API_KEY, SESSION_SECRET; `environment` above wins
     env_file:
