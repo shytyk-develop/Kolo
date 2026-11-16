@@ -5,8 +5,6 @@ Video calls for two. You open the site, tap once, send a link, and talk. No acco
 Calls are end-to-end encrypted: the key is made in your browser and travels only inside the link.
 The server that connects the two of you never sees it.
 
-![A call in Kolo](frontend/e2e/call.png)
-
 ## What it does
 
 - A room in one tap, a link to share, or a short code to type in.
