@@ -29,6 +29,14 @@ KOLO_DATABASE_URL=memory:// KOLO_REDIS_URL= KOLO_CORS_ORIGINS='["http://localhos
 npm run e2e   # e2e/call.mjs: call + safety code + Recent; e2e/lobby.mjs: waiting room
 ```
 
+Encryption, checked from the outside (the key never reaches a server, frames are noise with another
+key, a guest without the key waits for the host's ok, a third person can't join):
+
+```bash
+npm run e2e:e2ee
+npm test          # the crypto itself: keys, sealed signaling, frames, safety code (node's test runner)
+```
+
 Telegram invites, with notify mocked (`e2e/mock-notify.mjs` starts inside the test on :8799):
 
 ```bash
