@@ -3,6 +3,7 @@
 // run: node e2e/call.mjs (backend on :8000, frontend on :3000)
 import {
   createRoom,
+  encryption,
   hangUp,
   hostJoins,
   joinAs,
@@ -37,6 +38,9 @@ try {
   const codeB = await safetyCode(guest);
   console.log(`Safety code: Anya "${codeA}", Bob "${codeB}"`);
   if (codeA !== codeB) throw new Error("Safety codes differ, possible man in the middle!");
+  const security = [await encryption(host), await encryption(guest)];
+  console.log(`Encryption: ${security.join(" / ")}`);
+  if (security.some((x) => x !== "e2ee")) throw new Error("The call isn't end-to-end encrypted");
 
   // bitrate needs two reads 2s apart
   await host.waitForTimeout(4500);

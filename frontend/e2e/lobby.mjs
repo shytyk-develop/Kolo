@@ -1,4 +1,4 @@
-// waiting room: the host waits on "Knock, knock", the guest knocks with the code,
+// waiting room: the host waits on "Knock, knock", the guest knocks with the link,
 // the host lets them in from the home screen, both land in the call.
 // run: node e2e/lobby.mjs (backend on :8000, frontend on :3000)
 import { createRoom, hostJoins, joinWithCode, launch, person, shotOnFail, waitConnected, WEB } from "./helpers.mjs";
@@ -13,7 +13,8 @@ try {
   await hostJoins(host);
   await host.getByTestId("host-lobby").waitFor();
 
-  await joinWithCode(guest, room.code, "Bob");
+  // the whole link pasted into the code field: the key behind the # comes along
+  await joinWithCode(guest, room.url, "Bob");
   const waiting = await guest.getByTestId("guest-waiting").innerText({ timeout: 10_000 });
   console.log(`Guest sees: "${waiting.replace(/\s+/g, " ")}"`);
   if (!waiting.includes("Anya")) throw new Error("The guest should see who they're waiting for");

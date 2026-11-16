@@ -7,7 +7,10 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
+    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test \"src/**/*.test.ts\"",
     "e2e": "node e2e/call.mjs && node e2e/lobby.mjs",
+    "e2e:e2ee": "node e2e/e2ee.mjs",
+    "e2e:timing": "node e2e/timing.mjs",
     "e2e:telegram": "node e2e/telegram.mjs",
     "e2e:offline": "node e2e/offline.mjs"
   },

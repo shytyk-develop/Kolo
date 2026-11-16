@@ -47,7 +47,10 @@ export async function createRoom(page, name, { lobby = false } = {}) {
     await page.waitForFunction(() => document.querySelector('[data-testid="lobby-toggle"] [role=switch]')?.getAttribute("aria-checked") === "true");
     await page.waitForFunction(() => !document.querySelector('[data-testid="lobby-toggle"] [role=switch]')?.hasAttribute("disabled"));
   }
-  return { code, url: `${WEB}/r/${code}` };
+  // the invite link as the copy button gives it: the room's key rides in the #fragment
+  const key = await page.evaluate((c) => JSON.parse(localStorage.getItem(`kolo:key:${c}`) ?? "null")?.key ?? null, code);
+  if (!key) throw new Error("The new room has no key");
+  return { code, key, url: `${WEB}/r/${code}#k=${key}`, plainUrl: `${WEB}/r/${code}` };
 }
 
 /** "Join now" on "Room is ready": the call, or my waiting room if it's on. */
@@ -90,6 +93,12 @@ export async function openStats(page) {
   await page.getByTestId("call-island").hover();
   await page.getByRole("button", { name: "Stats" }).click();
   await page.locator(".stats").waitFor();
+}
+
+/** "end-to-end" when signaling and frames are encrypted with the room key. */
+export async function encryption(page) {
+  await page.waitForFunction(() => (document.querySelector('[data-testid="encryption"]')?.getAttribute("data-security") ?? "") !== "");
+  return page.getByTestId("encryption").getAttribute("data-security");
 }
 
 export async function safetyCode(page) {

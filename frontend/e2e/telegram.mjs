@@ -163,6 +163,8 @@ try {
   await yan.getByRole("button", { name: "Enter room" }).click();
   await yan.waitForURL(`${WEB}/r/${code}`);
   await joinAs(alex, `${WEB}/r/${code}`, "Alex");
+  // the bot's link carries no room key: Yan agrees to a call without it
+  await yan.getByTestId("allow-plain").click();
   await waitConnected(yan, "Yan");
   await waitConnected(alex, "Alex");
   await hangUp(yan);
