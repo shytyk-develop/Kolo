@@ -1,0 +1,14 @@
+{
+	auto_https off
+	admin off
+}
+
+https://kolo.lab {
+	tls /certs/server.crt /certs/server.key
+	reverse_proxy 10.77.0.12:3000
+}
+
+https://api.kolo.lab {
+	tls /certs/server.crt /certs/server.key
+	reverse_proxy 10.77.0.11:8000
+}

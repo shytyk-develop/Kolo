@@ -1,0 +1,167 @@
+# The lab: a closed copy of kolo with an attacker sitting between the two callers.
+# Nothing here touches the host network: every network is internal, no ports are published.
+#   ./lab/run.sh up | all | <attack> | down        (see lab/README.md)
+name: kolo-lab
+
+x-lab-image: &client-image
+  image: kolo-lab-client:local
+  build: ./lab/client
+
+services:
+  # one-shot: a private CA, a server certificate, the "corporate" CA of the attacker's TLS proxy
+  certs:
+    image: kolo-lab-attacker:local
+    build: ./lab/attacker
+    container_name: kolo-lab-certs
+    entrypoint: ["/bin/sh", "/gen/gen.sh"]
+    volumes: [./lab/certs:/gen:ro, certs:/certs]
+    network_mode: none
+
+  api:
+    image: kolo-lab-api:local
+    build: ./backend
+    container_name: kolo-lab-api
+    environment:
+      KOLO_ENV: prod
+      KOLO_DATABASE_URL: memory://
+      KOLO_JWT_SECRET: lab-only-jwt-secret-7d1f0c3e9a5b4f6e8d2c1a0b9e8f7d6c
+      KOLO_TURN_SECRET: lab-only-turn-secret-3b9a7c5e1d2f4a6b8c0d
+      KOLO_STUN_URLS: '["stun:turn.kolo.lab:3478"]'
+      KOLO_TURN_URLS: '["turn:turn.kolo.lab:3478?transport=udp","turn:turn.kolo.lab:3478?transport=tcp","turns:turn.kolo.lab:443?transport=tcp"]'
+      KOLO_CORS_ORIGINS: '["https://kolo.lab"]'
+      KOLO_PUBLIC_URL: https://kolo.lab
+      KOLO_FRONTEND_URL: https://kolo.lab
+      KOLO_TRUST_PROXY: "true"
+      KOLO_PROXY_SECRET: lab-only-proxy-secret
+      # the real defaults, so the brute force runs against the real limits
+      KOLO_ROOMS_PER_MINUTE_PER_IP: ${LAB_ROOMS_PER_MINUTE:-10}
+      KOLO_LOOKUPS_PER_MINUTE_PER_IP: ${LAB_LOOKUPS_PER_MINUTE:-60}
+    networks:
+      net: {ipv4_address: 10.77.0.11}
+
+  web:
+    image: kolo-lab-web:local
+    build:
+      context: ./frontend
+      dockerfile: ../lab/web/Dockerfile
+    container_name: kolo-lab-web
+    environment:
+      KOLO_PROXY_SECRET: lab-only-proxy-secret
+    networks:
+      net: {ipv4_address: 10.77.0.12}
+
+  # TLS in front of web and api, like Vercel and the Funnel do
+  edge:
+    image: caddy:2-alpine
+    container_name: kolo-lab-edge
+    volumes: [./lab/edge/Caddyfile:/etc/caddy/Caddyfile:ro, certs:/certs:ro]
+    depends_on:
+      certs: {condition: service_completed_successfully}
+    networks:
+      net: {ipv4_address: 10.77.0.10}
+
+  turn:
+    image: coturn/coturn:4.6
+    container_name: kolo-lab-turn
+    user: root  # port 443
+    volumes: [./lab/coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro, certs:/certs:ro]
+    command: ["-c", "/etc/coturn/turnserver.conf"]
+    depends_on:
+      certs: {condition: service_completed_successfully}
+    networks:
+      net: {ipv4_address: 10.77.0.13}
+
+  # gives the TURN server a default route (via the router). Without it coturn gets
+  # "Network is unreachable" sending to the callers and the whole session breaks
+  turn-route:
+    image: kolo-lab-attacker:local
+    container_name: kolo-lab-turn-route
+    network_mode: "service:turn"
+    cap_add: [NET_ADMIN]
+    entrypoint: ["ip", "route", "replace", "default", "via", "10.77.0.2"]
+    depends_on: [turn, attacker]
+
+  # the router between the callers and everything else: all their traffic passes through it
+  attacker:
+    image: kolo-lab-attacker:local
+    build: ./lab/attacker
+    container_name: kolo-lab-attacker
+    cap_add: [NET_ADMIN, NET_RAW]
+    sysctls:
+      net.ipv4.ip_forward: 1
+      net.ipv4.conf.all.rp_filter: 0
+      net.ipv4.conf.all.send_redirects: 0
+    volumes: [./lab/attacker:/lab:ro, ./lab/results:/results, certs:/certs]
+    extra_hosts:
+      - "kolo.lab:10.77.0.10"
+      - "api.kolo.lab:10.77.0.10"
+    depends_on:
+      certs: {condition: service_completed_successfully}
+    networks:
+      net: {ipv4_address: 10.77.0.2}
+      net-a: {ipv4_address: 10.77.1.2}
+      net-b: {ipv4_address: 10.77.2.2}
+
+  client-a: &client
+    <<: *client-image
+    container_name: kolo-lab-client-a
+    cap_add: [NET_ADMIN]
+    environment: {LAB_UNDERLAY: 10.77.1.2, LAB_VNI: 1, LAB_ADDRESS: 10.78.1.10, LAB_GATEWAY: 10.78.1.2}
+    volumes: [certs:/certs:ro]
+    extra_hosts: &hosts
+      - "kolo.lab:10.77.0.10"
+      - "api.kolo.lab:10.77.0.10"
+      - "turn.kolo.lab:10.77.0.13"
+    depends_on:
+      certs: {condition: service_completed_successfully}
+      attacker: {condition: service_started}
+    shm_size: 1gb
+    networks:
+      net-a: {ipv4_address: 10.77.1.10}
+      ctl: {ipv4_address: 10.77.9.11}
+
+  client-b:
+    <<: *client
+    container_name: kolo-lab-client-b
+    environment: {LAB_UNDERLAY: 10.77.2.2, LAB_VNI: 2, LAB_ADDRESS: 10.78.2.10, LAB_GATEWAY: 10.78.2.2}
+    networks:
+      net-b: {ipv4_address: 10.77.2.10}
+      ctl: {ipv4_address: 10.77.9.12}
+
+  # drives the two browsers (over ctl, a side channel the attacker isn't on)
+  runner:
+    <<: *client-image
+    container_name: kolo-lab-runner
+    entrypoint: ["sleep", "infinity"]
+    working_dir: /work
+    volumes: [./lab/runner:/work/lab:ro, ./frontend/e2e:/work/e2e:ro, ./lab/results:/results]
+    environment:
+      WEB_URL: https://kolo.lab
+      CLIENT_A: ws://10.77.9.11:9323/pw
+      CLIENT_B: ws://10.77.9.12:9323/pw
+    networks:
+      ctl: {ipv4_address: 10.77.9.20}
+
+networks:
+  # "the internet": servers and the attacker's outside leg
+  net:
+    name: kolo-lab-net
+    internal: true
+    ipam: {config: [{subnet: 10.77.0.0/24}]}
+  # caller A's side. The callers' own lan (10.78.1.0/24) is a tunnel on top of it, see lab/client/entry.sh
+  net-a:
+    name: kolo-lab-net-a
+    internal: true
+    ipam: {config: [{subnet: 10.77.1.0/24}]}
+  net-b:
+    name: kolo-lab-net-b
+    internal: true
+    ipam: {config: [{subnet: 10.77.2.0/24}]}
+  ctl:
+    name: kolo-lab-ctl
+    internal: true
+    ipam: {config: [{subnet: 10.77.9.0/24}]}
+
+volumes:
+  certs:
+    name: kolo-lab-certs
