@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
+import { connection } from "next/server";
 
 import { CameraLayer } from "@/components/CameraLayer";
 import { MediaProvider } from "@/components/MediaProvider";
@@ -22,7 +23,9 @@ export const viewport: Viewport = {
   viewportFit: "cover",
 };
 
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  // render per request: only then every response gets its own CSP nonce
+  await connection();
   return (
     <html lang="en" className={inter.variable}>
       <body>
